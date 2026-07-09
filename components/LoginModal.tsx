@@ -36,14 +36,11 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
   if (!isOpen) return null;
 
-  const handleLogin = () => {
+  const handleLogin = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!username.trim() || !password.trim()) return;
     setIsLoading(true);
     login(username.trim(), password.trim());
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleLogin();
   };
 
   const handleQuickFill = (u: string, p: string) => {
@@ -84,11 +81,18 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
         {/* Connection Status */}
         {!isConnected && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 mb-4">
-            <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-            <p className="text-xs text-red-400">
-              {connectionStatus === 'reconnecting' ? 'Menghubungkan ke server...' : 'Server tidak terhubung.'}
-            </p>
+          <div className="mb-6">
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+              <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+              <p className="text-xs text-red-400">
+                {connectionStatus === 'reconnecting' ? 'Menghubungkan ke server...' : 'Server tidak terhubung.'}
+              </p>
+            </div>
+            
+            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-xs text-yellow-400/90">
+              <p className="font-semibold mb-1">💡 Tips Koneksi:</p>
+              <p className="mb-2">Pastikan server arena sedang berjalan di komputer host. Jalankan <code className="bg-white/10 px-1 rounded">npm run dev</code> di terminal proyek.</p>
+            </div>
           </div>
         )}
 
@@ -101,7 +105,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
         )}
 
         {/* Form */}
-        <div className="space-y-4">
+        <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">
               Username
@@ -111,7 +115,6 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              onKeyDown={handleKeyDown}
               placeholder="masukkan username"
               autoComplete="username"
               className="w-full px-4 py-3 bg-background border border-border rounded-lg text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all text-sm"
@@ -128,12 +131,12 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
                 type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={handleKeyDown}
                 placeholder="••••••••••••"
                 autoComplete="current-password"
                 className="w-full px-4 py-3 pr-11 bg-background border border-border rounded-lg text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all text-sm"
               />
               <button
+                type="button"
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-foreground transition-colors"
               >
@@ -144,7 +147,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
 
           <button
             id="login-submit"
-            onClick={handleLogin}
+            type="submit"
             disabled={isLoading || !isConnected || !username.trim() || !password.trim()}
             className="w-full py-3 gradient-primary rounded-lg text-sm font-semibold text-background hover:opacity-90 transition-opacity flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -160,7 +163,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               </>
             )}
           </button>
-        </div>
+        </form>
 
         {/* Quick Account Selector */}
         <div className="mt-5">

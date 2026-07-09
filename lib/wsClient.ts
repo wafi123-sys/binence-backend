@@ -65,10 +65,14 @@ export class WSClient {
     if (url) {
       this.url = url;
     } else if (typeof window !== 'undefined') {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const hostname = window.location.hostname;
-      const wsPort = 3001;
-      this.url = `${protocol}//${hostname}:${wsPort}`;
+      // If deployed on Vercel, fallback to the ngrok URL. Otherwise use the current IP/localhost.
+      if (hostname.includes('vercel.app')) {
+        this.url = 'wss://shipping-barrier-locked-ratings.trycloudflare.com';
+      } else {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        this.url = `${protocol}//${hostname}:3001`;
+      }
     } else {
       this.url = 'ws://localhost:3001';
     }
