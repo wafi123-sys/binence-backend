@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Shield, Lock, Eye, EyeOff, X, AlertCircle, Users, Loader2 } from 'lucide-react';
+import { Shield, Lock, Eye, EyeOff, X, AlertCircle, Users, Loader2, Settings, Check, Trash2 } from 'lucide-react';
 import { useMarket } from '../hooks/useMarket';
+import { getStoredWsUrl, setStoredWsUrl, clearStoredWsUrl } from '../hooks/useMarket';
 import { USER_ACCOUNTS } from '../lib/users';
 
 interface LoginModalProps {
@@ -11,13 +12,16 @@ interface LoginModalProps {
 }
 
 export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
-  const { login, authError, isAuthenticated, connectionStatus } = useMarket();
+  const { login, authError, isAuthenticated, connectionStatus, wsUrl } = useMarket();
 
   const [showPassword, setShowPassword] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showAccounts, setShowAccounts] = useState(false);
+  const [showServerConfig, setShowServerConfig] = useState(false);
+  const [serverUrlInput, setServerUrlInput] = useState(() => getStoredWsUrl() || '');
+  const [urlSaved, setUrlSaved] = useState(false);
 
   // Close modal on successful login
   useEffect(() => {
@@ -47,6 +51,23 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
     setUsername(u);
     setPassword(p);
     setShowAccounts(false);
+  };
+
+  const handleSaveUrl = () => {
+    const trimmed = serverUrlInput.trim();
+    if (!trimmed) return;
+    setStoredWsUrl(trimmed.startsWith('ws') ? trimmed : `wss://${trimmed.replace(/^https?:\/\//, '')}`);
+    setUrlSaved(true);
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
+
+  const handleClearUrl = () => {
+    clearStoredWsUrl();
+    setServerUrlInput('');
+    setUrlSaved(false);
+    window.location.reload();
   };
 
   const isConnected = connectionStatus === 'connected';
@@ -89,10 +110,60 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
               </p>
             </div>
             
-            <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-xs text-yellow-400/90">
+            <div className="mt-3 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-xs text-yellow-400/90">
               <p className="font-semibold mb-1">💡 Tips Koneksi:</p>
               <p className="mb-2">Pastikan server arena sedang berjalan di komputer host. Jalankan <code className="bg-white/10 px-1 rounded">npm run dev</code> di terminal proyek.</p>
+              <button
+                type="button"
+                onClick={() => setShowServerConfig(!showServerConfig)}
+                className="flex items-center gap-1.5 text-yellow-300 hover:text-yellow-100 transition-colors mt-1 font-medium"
+              >
+                <Settings className="w-3 h-3" />
+                {showServerConfig ? 'Sembunyikan' : 'Ubah URL Server'}
+              </button>
             </div>
+
+            {/* Server URL Config Panel */}
+            {showServerConfig && (
+              <div className="mt-3 p-4 bg-white/5 border border-white/10 rounded-lg">
+                <p className="text-xs text-text-secondary mb-2 font-medium">WebSocket Server URL</p>
+                <p className="text-xs text-text-muted mb-3">
+                  URL aktif: <code className="bg-white/10 px-1 rounded break-all">{wsUrl}</code>
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={serverUrlInput}
+                    onChange={(e) => { setServerUrlInput(e.target.value); setUrlSaved(false); }}
+                    placeholder="wss://your-tunnel.trycloudflare.com"
+                    className="flex-1 px-3 py-2 bg-background border border-border rounded-lg text-foreground placeholder:text-text-muted text-xs focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20 transition-all"
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveUrl(); } }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveUrl}
+                    disabled={!serverUrlInput.trim()}
+                    className="px-3 py-2 rounded-lg bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-40 flex items-center gap-1"
+                    title="Simpan & Reconnect"
+                  >
+                    {urlSaved ? <Check className="w-3.5 h-3.5" /> : <Check className="w-3.5 h-3.5" />}
+                  </button>
+                  {getStoredWsUrl() && (
+                    <button
+                      type="button"
+                      onClick={handleClearUrl}
+                      className="px-3 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors flex items-center gap-1"
+                      title="Reset ke URL default"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-text-muted mt-2">
+                  Masukkan URL Cloudflare tunnel / ngrok aktif dari host. Setelah disimpan, halaman akan reload otomatis.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

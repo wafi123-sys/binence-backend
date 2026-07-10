@@ -8,7 +8,9 @@
     "build": "next build",
     "build:android": "next build && npx cap sync android",
     "start": "tsx server/server.ts",
-    "lint": "eslint"
+    "lint": "eslint",
+    "tunnel": "npx cloudflared tunnel --url http://localhost:3001",
+    "dev:all": "concurrently \"npm run dev\" \"npm run tunnel\""
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",

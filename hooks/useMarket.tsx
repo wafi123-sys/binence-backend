@@ -26,9 +26,29 @@ import {
   SultanBotStats,
 } from '../engine/types';
 
+export const WS_URL_STORAGE_KEY = 'arena_ws_url';
+
+export function getStoredWsUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(WS_URL_STORAGE_KEY);
+}
+
+export function setStoredWsUrl(url: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(WS_URL_STORAGE_KEY, url);
+}
+
+export function clearStoredWsUrl(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(WS_URL_STORAGE_KEY);
+}
+
 // ── Market State Interface ──────────────────────────────────
 
 interface MarketData {
+  // Server URL management
+  wsUrl: string;
+  updateWsUrl: (url: string) => void;
   // Auth
   isAuthenticated: boolean;
   authError: string | null;
@@ -139,26 +159,32 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const [serverError, setServerError] = useState<string | null>(null);
   const serverErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    let wsUrl: string | undefined = undefined;
-    if (typeof window !== 'undefined') {
-      const isNative = (window as any).Capacitor?.isNative;
-      const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-      
-      if (isNative || isRemote) {
-        // Read from query param if provided (allows runtime override)
-        const params = new URLSearchParams(window.location.search);
-        const urlWs = params.get('ws');
-        if (urlWs) {
-           wsUrl = urlWs.startsWith('ws') ? urlWs : `wss://${urlWs.replace(/^https?:\/\//, '')}`;
-        } else {
-          // Default: always use active Cloudflare Tunnel
-          wsUrl = 'wss://essentially-receive-place-ebony.trycloudflare.com';
-        }
-      }
+  const [activeWsUrl, setActiveWsUrl] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'ws://localhost:3001';
+    // Priority: localStorage > query param > auto-detect
+    const stored = getStoredWsUrl();
+    if (stored) return stored;
+    const params = new URLSearchParams(window.location.search);
+    const urlWs = params.get('ws');
+    if (urlWs) return urlWs.startsWith('ws') ? urlWs : `wss://${urlWs.replace(/^https?:\/\//, '')}`;
+    const isNative = (window as any).Capacitor?.isNative;
+    const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+    if (isNative || isRemote) {
+      return 'wss://essentially-receive-place-ebony.trycloudflare.com';
     }
+    return 'ws://localhost:3001';
+  });
 
-    const ws = new WSClient(wsUrl);
+  const updateWsUrl = useCallback((url: string) => {
+    const normalized = url.startsWith('ws') ? url : `wss://${url.replace(/^https?:\/\//, '')}`;
+    setStoredWsUrl(normalized);
+    setActiveWsUrl(normalized);
+    // Reload to re-establish WebSocket connection with new URL
+    window.location.reload();
+  }, []);
+
+  useEffect(() => {
+    const ws = new WSClient(activeWsUrl);
     wsRef.current = ws;
 
     // Track stored credentials so we can re-login after reconnect
@@ -300,6 +326,8 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     asks, bids, lastPrice, lastVolume, lastSide,
     runningTrades, ohlcData, myOrders, serverError,
     sultanLeaderboard,
+    wsUrl: activeWsUrl,
+    updateWsUrl,
     submitOrder,
     cancelOrder,
     modifyOrder,
