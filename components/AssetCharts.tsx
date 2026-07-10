@@ -12,6 +12,7 @@ const TRADEABLE_ASSETS = ASSETS; // BTC, BBCA, BBRI, GOTO, MTDL
 
 export default function AssetCharts() {
   const [activeTab, setActiveTab] = useState(0);
+  const [timeframe, setTimeframe] = useState('1W');
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi | null>(null);
@@ -21,10 +22,40 @@ export default function AssetCharts() {
   const asset = TRADEABLE_ASSETS[activeTab];
 
   const ohlcData = useMemo(() => {
-    const startDate = new Date('2024-01-01');
+    const startDate = new Date('2020-01-01');
     const endDate = new Date();
-    return generateOHLCData(asset, startDate, endDate);
-  }, [asset]);
+    const dailyData = generateOHLCData(asset, startDate, endDate);
+
+    if (timeframe === '1D') return dailyData;
+
+    const groupedData: typeof dailyData = [];
+    let currentGroup: any = null;
+
+    for (const d of dailyData) {
+      const date = new Date(d.timestamp);
+      let groupTime = d.timestamp;
+
+      if (timeframe === '1W') {
+        const day = date.getDay();
+        const diff = date.getDate() - day + (day === 0 ? -6 : 1);
+        groupTime = new Date(new Date(date).setDate(diff)).setHours(0,0,0,0);
+      } else if (timeframe === '1M') {
+        groupTime = new Date(date.getFullYear(), date.getMonth(), 1).getTime();
+      }
+
+      if (!currentGroup || currentGroup.timestamp !== groupTime) {
+        if (currentGroup) groupedData.push(currentGroup);
+        currentGroup = { ...d, timestamp: groupTime };
+      } else {
+        currentGroup.high = Math.max(currentGroup.high, d.high);
+        currentGroup.low = Math.min(currentGroup.low, d.low);
+        currentGroup.close = d.close;
+        currentGroup.volume += d.volume;
+      }
+    }
+    if (currentGroup) groupedData.push(currentGroup);
+    return groupedData;
+  }, [asset, timeframe]);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -32,7 +63,7 @@ export default function AssetCharts() {
     // Dynamically import lightweight-charts
     let isMounted = true;
 
-    import('lightweight-charts').then(({ createChart, ColorType, CandlestickSeries }) => {
+    import('lightweight-charts').then(({ createChart, ColorType, CandlestickSeries, LineSeries }) => {
       if (!isMounted || !chartContainerRef.current) return;
 
       // Clear existing chart
@@ -101,6 +132,24 @@ export default function AssetCharts() {
       }));
 
       candlestickSeries.setData(formattedData);
+      
+      const trendlineSeries = chart.addSeries(LineSeries, {
+        color: '#ff1744',
+        lineWidth: 2,
+        crosshairMarkerVisible: false,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
+      if (formattedData.length > 10) {
+        const firstPoint = formattedData[Math.floor(formattedData.length * 0.1)];
+        const lastPoint = formattedData[formattedData.length - 1];
+        trendlineSeries.setData([
+          { time: firstPoint.time, value: firstPoint.low * 0.85 },
+          { time: lastPoint.time, value: lastPoint.low * 0.95 },
+        ]);
+      }
+
       chart.timeScale().fitContent();
 
       chartRef.current = chart;
@@ -150,7 +199,7 @@ export default function AssetCharts() {
         chartRef.current = null;
       }
     };
-  }, [activeTab, ohlcData, asset.annualVolatility]);
+  }, [activeTab, ohlcData, asset.annualVolatility, timeframe]);
 
   return (
     <div className="glass-card p-6">
@@ -182,13 +231,30 @@ export default function AssetCharts() {
         ))}
       </div>
 
-      {/* Asset info */}
-      <div className="flex items-center gap-4 mb-4">
-        <span className="text-sm text-text-secondary">{asset.name}</span>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-primary-dim text-primary uppercase">
-          {asset.type}
-        </span>
-        <span className="text-xs text-text-muted">{asset.currency}</span>
+      {/* Asset info and Timeframe */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-text-secondary">{asset.name}</span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-primary-dim text-primary uppercase">
+            {asset.type}
+          </span>
+          <span className="text-xs text-text-muted">{asset.currency}</span>
+        </div>
+        <div className="flex gap-2">
+          {['1D', '1W', '1M'].map((tf) => (
+            <button
+              key={tf}
+              onClick={() => setTimeframe(tf)}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                timeframe === tf
+                  ? 'bg-primary/20 text-primary'
+                  : 'text-text-secondary hover:text-foreground hover:bg-border'
+              }`}
+            >
+              {tf}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Chart Container */}

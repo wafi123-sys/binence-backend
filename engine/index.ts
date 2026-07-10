@@ -8,7 +8,8 @@ import { OrderEngine } from './orderEngine';
 import { ExecutionEngine } from './executionEngine';
 import { MarketState } from './marketState';
 import { OHLCBuilder } from './ohlcBuilder';
-import { BotEngine } from './botEngine';
+import { SultanBotEngine } from './sultanBotEngine';
+import { SultanBotStats } from './types';
 import {
   Execution,
   Order,
@@ -35,7 +36,7 @@ export class Engine {
   private executionEngine: ExecutionEngine;
   private marketState: MarketState;
   private ohlcBuilder: OHLCBuilder;
-  private botEngine: BotEngine;
+  private botEngine: SultanBotEngine;
 
   private events: Partial<EngineEvents> = {};
 
@@ -46,12 +47,13 @@ export class Engine {
     this.matchingEngine = new MatchingEngine();
     this.orderEngine = new OrderEngine(this.matchingEngine);
     this.executionEngine = new ExecutionEngine(this.marketState, this.ohlcBuilder);
-    this.botEngine = new BotEngine(this.orderEngine, this.matchingEngine, basePrice);
+    this.botEngine = new SultanBotEngine(this.orderEngine, this.matchingEngine, basePrice);
 
     // Wire up callbacks
     this.matchingEngine.setOnExecution((exec) => {
       this.executionEngine.processExecution(exec);
       this.refreshOrderBook();
+      this.botEngine.onPriceUpdate(exec.price);
       this.events.onExecution?.(exec);
       this.events.onRunningTrade?.({
         time: exec.timestamp,
@@ -62,6 +64,15 @@ export class Engine {
     });
 
     this.matchingEngine.setOnOrderUpdate((order) => {
+      this.botEngine.processPassiveFill(
+        order.id, 
+        order.playerId, 
+        order.filledQty, 
+        order.price, 
+        this.marketState.getSnapshot().lastPrice, 
+        order.side, 
+        order.status
+      );
       this.events.onOrderUpdate?.(order);
     });
 
@@ -83,7 +94,29 @@ export class Engine {
   start(): void {
     this.botEngine.seedOrderBook();
     this.refreshOrderBook();
-    this.botEngine.start(800);
+    this.botEngine.start();
+
+    // Generate simulated historical uptrend for 1W to match user request
+    const weeklyData: OHLCBar[] = [];
+    const weeks = 50;
+    let price = 100;
+    const endPrice = 300; // bot base price
+    const drift = Math.pow(endPrice / price, 1 / weeks);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const weekSec = 604800;
+    
+    for (let i = weeks; i > 0; i--) {
+      const time = nowSec - (i * weekSec);
+      const open = price;
+      // Add random volatility on top of drift
+      price = price * drift * (1 + (Math.random() - 0.4) * 0.05);
+      const close = price;
+      const high = Math.max(open, close) * (1 + Math.random() * 0.02);
+      const low = Math.min(open, close) * (1 - Math.random() * 0.02);
+      weeklyData.push({ time, open, high, low, close, volume: 100 + Math.random() * 1000 });
+    }
+    
+    this.ohlcBuilder.seedHistoricalData('1w', weeklyData);
   }
 
   /**
@@ -149,13 +182,20 @@ export class Engine {
    * Get current order book levels.
    */
   getOrderBookLevels(): { asks: OrderBookLevel[]; bids: OrderBookLevel[] } {
-    return this.matchingEngine.getOrderBookLevels(10);
+    return this.matchingEngine.getOrderBookLevels(40);
+  }
+
+  /**
+   * Get Top 10 Sultan bots leaderboard
+   */
+  getSultanLeaderboard(): SultanBotStats[] {
+    return this.botEngine.getLeaderboard();
   }
 
   // ── Private Methods ──────────────────────────────────────────
 
   private refreshOrderBook(): void {
-    const { asks, bids } = this.matchingEngine.getOrderBookLevels(10);
+    const { asks, bids } = this.matchingEngine.getOrderBookLevels(40);
     this.marketState.updateOrderBook(asks, bids);
     this.events.onOrderBookUpdate?.(asks, bids);
   }

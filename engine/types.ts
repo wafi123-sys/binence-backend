@@ -98,7 +98,8 @@ export type Timeframe =
   | '15m'
   | '30m'
   | '1h'
-  | '1d';
+  | '1d'
+  | '1w';
 
 export const TIMEFRAME_MS: Record<Timeframe, number> = {
   tick: 0,        // every trade is a bar
@@ -112,19 +113,79 @@ export const TIMEFRAME_MS: Record<Timeframe, number> = {
   '30m': 1800000,
   '1h': 3600000,
   '1d': 86400000,
+  '1w': 604800000,
 };
 
 // ── Player Stats ─────────────────────────────────────────────
 
 export interface PlayerStats {
-  cashBalance: number;      // available cash
-  stockPosition: number;    // lots currently held (net long)
-  avgBuyPrice: number;      // weighted average buy price
-  realizedPnL: number;      // cumulative realized PnL (IDR)
-  unrealizedPnL: number;    // mark-to-market PnL on open position
-  totalTrades: number;      // number of fills
-  totalBought: number;      // total lots bought (lifetime)
-  totalSold: number;        // total lots sold (lifetime)
+  // ── Starting point ─────────────────────────────────────────
+  initialBalance: number;   // Fixed starting balance (used for Return %)
+
+  // ── Cash ───────────────────────────────────────────────────
+  cashBalance: number;      // Actual cash on hand (changes only on fill/cancel)
+  activeBalance: number;    // Cash locked by pending BUY orders
+  availableBalance: number; // cashBalance − activeBalance (usable for new orders)
+
+  // ── Position ───────────────────────────────────────────────
+  stockPosition: number;    // Lots currently held (net long)
+  avgBuyPrice: number;      // Weighted average buy price (per share)
+
+  // ── Portfolio & Equity ─────────────────────────────────────
+  portfolioValue: number;   // lastPrice × position × 100
+  totalEquity: number;      // cashBalance + portfolioValue
+
+  // ── PnL ────────────────────────────────────────────────────
+  unrealizedPnL: number;    // (lastPrice − avgBuyPrice) × position × 100
+  realizedPnL: number;      // Cumulative realized PnL from closed sells
+
+  // ── Performance ────────────────────────────────────────────
+  returnPct: number;        // (totalEquity − initialBalance) / initialBalance × 100
+
+  // ── Trade Counters ─────────────────────────────────────────
+  totalTrades: number;      // Total filled executions (buy + sell)
+  totalBought: number;      // Lifetime lots bought
+  totalSold: number;        // Lifetime lots sold
+  winTrade: number;         // Sell executions with positive PnL
+  lossTrade: number;        // Sell executions with negative PnL
+  winRate: number;          // winTrade / (winTrade + lossTrade) × 100
+}
+
+// ── Sultan Bot Stats ─────────────────────────────────────────
+
+export type SultanStrategy = 
+  | 'The Collector' 
+  | 'The Absorber' 
+  | 'The Breakout Hunter' 
+  | 'The Distributor' 
+  | 'The Scalper' 
+  | 'The Momentum' 
+  | 'The Liquidity Provider' 
+  | 'The Contrarian' 
+  | 'The Swing Trader' 
+  | 'The Institution' 
+  | 'Retail Trader';
+
+export interface SultanBotConfig {
+  id: string;
+  name: string;
+  strategy: SultanStrategy;
+  initialCapital: number;
+  
+  // Risk Management & Trading Logic Rules
+  maxPosition?: number;       // Maximum lots allowed to hold
+  maxLoss?: number;           // Maximum absolute loss allowed before halting
+  maxExposure?: number;       // Maximum % of cash allowed to be locked in orders
+  maxDailyTrade?: number;     // Max number of trades allowed per day (not strictly enforced if missing)
+  targetProfitPct?: number;   // Expected return % to start taking profit
+  stopLossPct?: number;       // Expected loss % to start cutting loss
+  trailingStopPct?: number;   // Distance for trailing stop (if used)
+}
+
+export interface SultanBotStats extends PlayerStats {
+  id: string;
+  name: string;
+  strategy: SultanStrategy;
 }
 
 // ── WebSocket Message Types ──────────────────────────────────
@@ -158,5 +219,6 @@ export type WSServerMessage =
   | { type: 'ohlc_update'; payload: { timeframe: Timeframe; bar: OHLCBar } }
   | { type: 'my_order_update'; payload: Order }
   | { type: 'market_info'; payload: { lastPrice: number; lastVolume: number; lastSide: OrderSide | null; playerCount: number } }
+  | { type: 'sultan_leaderboard_update'; payload: SultanBotStats[] }
   | { type: 'error'; payload: { message: string } };
 

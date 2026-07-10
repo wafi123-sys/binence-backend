@@ -1,172 +1,127 @@
 // ============================================================
-// Order Book Panel — 10-level bid/ask with animations
+// Order Book Panel — Full DOM Match
 // ============================================================
 
 'use client';
 
-import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import React, { useMemo } from 'react';
 import { useMarket } from '../../hooks/useMarket';
-import { OrderBookLevel, OrderSide } from '../../engine/types';
+import { OrderSide, OrderType } from '../../engine/types';
 
 interface OrderBookPanelProps {
   onPriceClick: (price: number, side: OrderSide) => void;
-  onPriceDoubleClick: (price: number, side: OrderSide) => void;
+  onPriceDoubleClick?: (price: number, side: OrderSide) => void;
   oneClickTrading?: boolean;
+  clickLot: number;
 }
 
 export default function OrderBookPanel({
   onPriceClick,
-  onPriceDoubleClick,
-  oneClickTrading = false,
+  clickLot,
 }: OrderBookPanelProps) {
-  const { asks, bids, lastPrice, lastSide, lastVolume } = useMarket();
+  const { asks, bids, lastPrice, submitOrder } = useMarket();
 
-  // Track previous lots for flash animations using refs (avoid stale closures)
-  const prevLotsRef = useRef<Map<number, number>>(new Map());
-  const [flashMap, setFlashMap] = useState<Map<number, 'green' | 'red'>>(new Map());
+  // Render 35 levels above and below the last price to ensure the DOM fills the entire vertical screen space
+  const displayLevels = 35;
+  const maxAskPrice = asks.length > 0 ? asks[asks.length - 1].price : (lastPrice > 0 ? lastPrice + 10 : 310);
+  const minBidPrice = bids.length > 0 ? bids[bids.length - 1].price : (lastPrice > 0 ? lastPrice - 10 : 290);
+  const topPrice = Math.max(maxAskPrice, lastPrice > 0 ? lastPrice + displayLevels : 300 + displayLevels);
+  const bottomPrice = Math.min(minBidPrice, lastPrice > 0 ? Math.max(1, lastPrice - displayLevels) : Math.max(1, 300 - displayLevels));
 
-  useEffect(() => {
-    const newFlash = new Map<number, 'green' | 'red'>();
-    const prev = prevLotsRef.current;
-    const next = new Map<number, number>();
-
-    [...asks, ...bids].forEach((level) => {
-      next.set(level.price, level.totalLot);
-      const prevLot = prev.get(level.price);
-      if (prevLot !== undefined && prevLot !== level.totalLot) {
-        newFlash.set(level.price, level.totalLot > prevLot ? 'green' : 'red');
-      }
-    });
-
-    prevLotsRef.current = next;
-
-    if (newFlash.size > 0) {
-      setFlashMap(newFlash);
-      const t = setTimeout(() => setFlashMap(new Map()), 400);
-      return () => clearTimeout(t);
+  const domRows = useMemo(() => {
+    const rows = [];
+    for (let p = topPrice; p >= bottomPrice; p--) {
+      rows.push({
+        price: p,
+        ask: asks.find(a => a.price === p),
+        bid: bids.find(b => b.price === p)
+      });
     }
-  }, [asks, bids]);
+    return rows;
+  }, [asks, bids, topPrice, bottomPrice]);
 
-  // Max lot for depth bar width calculation
-  const maxLot = useMemo(() => {
-    let m = 1;
-    for (const l of asks) if (l.totalLot > m) m = l.totalLot;
-    for (const l of bids) if (l.totalLot > m) m = l.totalLot;
-    return m;
-  }, [asks, bids]);
+  const handlePlusClick = (price: number, side: OrderSide) => {
+    // One click instant order using lot from QuickOrderPanel
+    submitOrder(side, OrderType.LIMIT, price, clickLot);
+  };
 
-  // Asks displayed highest-first (reverse of the sorted ascending array)
-  const displayAsks = useMemo(() => [...asks].reverse(), [asks]);
+  // 11 cols total: expand to fit 480px width
+  const gridTemplate = "35px 30px 45px 25px 1fr 65px 1fr 25px 45px 30px 35px";
 
   return (
-    <div className="order-book-panel">
+    <div className="flex flex-col flex-1 border-b border-[#2a2a2a] bg-[#121212] overflow-hidden select-none">
       {/* Header */}
-      <div className="ob-header">
-        <h3>Order Book</h3>
-        <div className="ob-header-cols">
-          <span>Price</span>
-          <span>Lot</span>
-          <span>Freq</span>
-        </div>
+      <div 
+        className="grid items-center px-1 py-1.5 border-b border-[#2a2a2a] text-[10px] font-bold text-slate-300 text-right shrink-0 bg-[#1a1a1a]"
+        style={{ gridTemplateColumns: gridTemplate }}
+      >
+        <div className="text-center">Trade</div>
+        <div className="text-center">Buy</div>
+        <div className="text-center text-[#7e85cc]">Freq</div>
+        <div className="text-center">+/-</div>
+        <div className="text-center">Lot</div>
+        <div className="text-center">Price</div>
+        <div className="text-center">Lot</div>
+        <div className="text-center">+/-</div>
+        <div className="text-center text-[#7e85cc]">Freq</div>
+        <div className="text-center">Sell</div>
+        <div className="text-center">Done</div>
       </div>
 
-      {/* Ask rows (Offer) */}
-      <div className="ob-asks">
-        {displayAsks.length === 0 && (
-          <div className="ob-empty">No offers</div>
-        )}
-        {displayAsks.map((level) => (
-          <BookRow
-            key={`ask-${level.price}`}
-            level={level}
-            side="ask"
-            maxLot={maxLot}
-            flash={flashMap.get(level.price)}
-            onClick={() => onPriceClick(level.price, OrderSide.BUY)}
-            onDoubleClick={() => onPriceDoubleClick(level.price, OrderSide.BUY)}
-          />
-        ))}
-      </div>
+      {/* Body */}
+      <div className="flex-1 overflow-y-auto" style={{ backgroundColor: '#121212' }}>
+        {domRows.map((row) => {
+          const isLastPrice = row.price === lastPrice;
+          const pColor = row.price > 300 ? 'text-[#00e676]' : (row.price < 300 ? 'text-[#ff1744]' : 'text-slate-300');
 
-      {/* Spread / Last Price band */}
-      <div className="ob-spread">
-        <div className="ob-last-price">
-          <span
-            className={`ob-last-value ${
-              lastSide === OrderSide.BUY ? 'ob-last-buy' :
-              lastSide === OrderSide.SELL ? 'ob-last-sell' : ''
-            }`}
-          >
-            {lastPrice > 0 ? lastPrice.toLocaleString('id-ID') : '—'}
-          </span>
-          {lastVolume > 0 && (
-            <span className="ob-last-vol">{lastVolume} lot</span>
-          )}
-        </div>
-        {asks.length > 0 && bids.length > 0 && (
-          <div className="ob-spread-value">
-            spread {(asks[0].price - bids[0].price).toFixed(0)}
-          </div>
-        )}
-      </div>
+          return (
+            <div 
+              key={row.price} 
+              className={`grid items-center h-[22px] text-[11px] font-mono border-b border-[#2a2a2a] cursor-default hover:bg-white/5 ${isLastPrice ? 'bg-[#2a1b38] border-[#9c27b0]' : ''}`}
+              style={{ gridTemplateColumns: gridTemplate }}
+              onClick={() => onPriceClick(row.price, OrderSide.BUY)}
+            >
+              {/* Trade */}
+              <div></div>
 
-      {/* Bid rows */}
-      <div className="ob-bids">
-        {bids.length === 0 && (
-          <div className="ob-empty">No bids</div>
-        )}
-        {bids.map((level) => (
-          <BookRow
-            key={`bid-${level.price}`}
-            level={level}
-            side="bid"
-            maxLot={maxLot}
-            flash={flashMap.get(level.price)}
-            onClick={() => onPriceClick(level.price, OrderSide.SELL)}
-            onDoubleClick={() => onPriceDoubleClick(level.price, OrderSide.SELL)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
+              {/* Buy Plus Button */}
+              <div 
+                className="flex items-center justify-center cursor-pointer group h-full w-full"
+                onClick={(e) => { e.stopPropagation(); handlePlusClick(row.price, OrderSide.BUY); }}
+              >
+                 <span className="flex items-center justify-center w-[13px] h-[13px] rounded-full border border-[#00e676] text-[#00e676] text-[11px] font-sans group-hover:bg-[#00e676] group-hover:text-black leading-none pb-[1px]">+</span>
+              </div>
 
-// ── Individual Row ────────────────────────────────────────────
+              {/* Bids Freq & Lot */}
+              <div className="text-right px-1 text-[#7e85cc]">{row.bid?.frequency || ''}</div>
+              <div className="text-center"></div>
+              <div className="text-right pr-2 text-white">{row.bid ? row.bid.totalLot.toLocaleString('id-ID') : ''}</div>
+              
+              {/* Price Center */}
+              <div 
+                className={`text-center font-bold text-[12px] ${pColor} ${isLastPrice ? 'border border-[#9c27b0] rounded-[3px] !text-[#d8b4e2]' : ''}`}
+              >
+                 {row.price.toLocaleString('id-ID')}
+              </div>
+              
+              {/* Asks Lot & Freq */}
+              <div className="text-left pl-2 text-white">{row.ask ? row.ask.totalLot.toLocaleString('id-ID') : ''}</div>
+              <div className="text-center"></div>
+              <div className="text-left px-1 text-[#7e85cc]">{row.ask?.frequency || ''}</div>
 
-interface BookRowProps {
-  level: OrderBookLevel;
-  side: 'bid' | 'ask';
-  maxLot: number;
-  flash?: 'green' | 'red';
-  onClick: () => void;
-  onDoubleClick: () => void;
-}
+              {/* Sell Plus Button */}
+              <div 
+                className="flex items-center justify-center cursor-pointer group h-full w-full"
+                onClick={(e) => { e.stopPropagation(); handlePlusClick(row.price, OrderSide.SELL); }}
+              >
+                 <span className="flex items-center justify-center w-[13px] h-[13px] rounded-full border border-[#ff1744] text-[#ff1744] text-[11px] font-sans group-hover:bg-[#ff1744] group-hover:text-white leading-none pb-[1px]">+</span>
+              </div>
 
-function BookRow({ level, side, maxLot, flash, onClick, onDoubleClick }: BookRowProps) {
-  const depthPct = (level.totalLot / maxLot) * 100;
-  const flashClass = flash === 'green' ? 'ob-flash-green' : flash === 'red' ? 'ob-flash-red' : '';
-
-  return (
-    <div
-      className={`ob-row ob-row-${side} ${flashClass}`}
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      role="button"
-      tabIndex={0}
-    >
-      <div
-        className={`ob-depth ob-depth-${side}`}
-        style={{ width: `${depthPct}%` }}
-      />
-      <div className="ob-row-content">
-        <span className="ob-action">{side === 'ask' ? '▶' : '◀'}</span>
-        <span className={`ob-price ob-price-${side}`}>
-          {level.price.toLocaleString('id-ID')}
-        </span>
-        <span className="ob-lot">
-          {level.totalLot.toLocaleString('id-ID')}
-        </span>
-        <span className="ob-freq">{level.frequency}</span>
+              {/* Done */}
+              <div></div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

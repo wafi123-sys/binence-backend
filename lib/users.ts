@@ -18,7 +18,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-001',
     username: 'andi_trade',
     password: 'andi123',
-    balance: 50_000_000,   // Rp 50 juta
+    balance: 500_000_000,   // Rp 500 juta
     role: 'player',
     avatar: '🦊',
   },
@@ -26,7 +26,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-002',
     username: 'budi_invest',
     password: 'budi456',
-    balance: 75_000_000,   // Rp 75 juta
+    balance: 750_000_000,   // Rp 750 juta
     role: 'player',
     avatar: '🐻',
   },
@@ -34,7 +34,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-003',
     username: 'citra_saham',
     password: 'citra789',
-    balance: 30_000_000,   // Rp 30 juta
+    balance: 300_000_000,   // Rp 300 juta
     role: 'player',
     avatar: '🦋',
   },
@@ -42,7 +42,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-004',
     username: 'deni_scalp',
     password: 'deni321',
-    balance: 100_000_000,  // Rp 100 juta
+    balance: 1_000_000_000,  // Rp 1 miliar
     role: 'player',
     avatar: '🐺',
   },
@@ -50,7 +50,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-005',
     username: 'eka_swing',
     password: 'eka654',
-    balance: 45_000_000,   // Rp 45 juta
+    balance: 450_000_000,   // Rp 450 juta
     role: 'player',
     avatar: '🦅',
   },
@@ -58,7 +58,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-006',
     username: 'fajar_momentum',
     password: 'fajar987',
-    balance: 60_000_000,   // Rp 60 juta
+    balance: 600_000_000,   // Rp 600 juta
     role: 'player',
     avatar: '🐉',
   },
@@ -66,7 +66,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-007',
     username: 'gita_value',
     password: 'gita111',
-    balance: 25_000_000,   // Rp 25 juta
+    balance: 250_000_000,   // Rp 250 juta
     role: 'player',
     avatar: '🦁',
   },
@@ -74,7 +74,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-008',
     username: 'hendra_quant',
     password: 'hendra222',
-    balance: 80_000_000,   // Rp 80 juta
+    balance: 800_000_000,   // Rp 800 juta
     role: 'player',
     avatar: '🐯',
   },
@@ -82,7 +82,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'player-009',
     username: 'indra_algo',
     password: 'indra333',
-    balance: 55_000_000,   // Rp 55 juta
+    balance: 550_000_000,   // Rp 550 juta
     role: 'player',
     avatar: '🦈',
   },
@@ -92,7 +92,7 @@ export const USER_ACCOUNTS: UserAccount[] = [
     id: 'whale-001',
     username: 'sultan_market',
     password: 'sultan999',
-    balance: 50_000_000_000,  // Rp 50 miliar 🐳
+    balance: 500_000_000_000,  // Rp 500 miliar 🐳
     role: 'whale',
     avatar: '🐳',
   },

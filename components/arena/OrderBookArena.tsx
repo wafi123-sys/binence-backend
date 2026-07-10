@@ -13,6 +13,7 @@ import RunningTradePanel from './RunningTradePanel';
 import CandlestickChart from './CandlestickChart';
 import MyOrdersPanel from './MyOrdersPanel';
 import StatusBar from './StatusBar';
+import SultanLeaderboard from './SultanLeaderboard';
 import LoginModal from '../LoginModal';
 import { OrderSide, OrderType } from '../../engine/types';
 
@@ -20,9 +21,9 @@ function ArenaContent() {
   const { submitOrder, lastPrice, isAuthenticated } = useMarket();
 
   const [orderPrice, setOrderPrice] = useState(0);
+  const [orderLot, setOrderLot] = useState(10);
   const [oneClickTrading, setOneClickTrading] = useState(false);
-  // Default lot for one-click trades
-  const [clickLot] = useState(100);
+  const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
 
   // Single click → fill price field
   const handlePriceClick = useCallback((price: number, _side: OrderSide) => {
@@ -34,12 +35,12 @@ function ArenaContent() {
     (price: number, side: OrderSide) => {
       if (oneClickTrading) {
         // BUY when clicking an ask price, SELL when clicking a bid price
-        submitOrder(side, OrderType.LIMIT, price, clickLot);
+        submitOrder(side, OrderType.LIMIT, price, orderLot);
       } else {
         setOrderPrice(price);
       }
     },
-    [oneClickTrading, submitOrder, clickLot]
+    [oneClickTrading, submitOrder, orderLot]
   );
 
   // Show login modal if not authenticated
@@ -61,29 +62,45 @@ function ArenaContent() {
 
   return (
     <div className="arena-layout">
-      {/* ── Left: Order Book + Running Trade ── */}
-      <div className="arena-left">
+      {/* ── Left: Quick Order + Order Book ── */}
+      <div className="arena-left" style={{ overflowY: 'auto' }}>
+        <QuickOrderPanel
+          price={orderPrice}
+          setPrice={setOrderPrice}
+          lot={orderLot}
+          setLot={setOrderLot}
+          oneClickTrading={oneClickTrading}
+          setOneClickTrading={setOneClickTrading}
+        />
         <OrderBookPanel
           onPriceClick={handlePriceClick}
           onPriceDoubleClick={handlePriceDoubleClick}
           oneClickTrading={oneClickTrading}
+          clickLot={orderLot}
         />
-        <RunningTradePanel />
       </div>
 
       {/* ── Center: Candlestick Chart ── */}
-      <div className="arena-center">
+      <div className="arena-center" style={{ position: 'relative' }}>
+        <button 
+          className="sultan-toggle-btn"
+          onClick={() => setIsLeaderboardOpen(!isLeaderboardOpen)}
+          style={{
+            position: 'absolute', top: 10, right: 10, zIndex: 10,
+            background: 'var(--color-surface-2)', border: '1px solid #ffd700',
+            color: '#ffd700', padding: '6px 12px', borderRadius: '4px',
+            fontSize: '12px', fontWeight: 'bold', cursor: 'pointer'
+          }}
+        >
+          👑 TOP 10 SULTAN
+        </button>
         <CandlestickChart />
+        <SultanLeaderboard isOpen={isLeaderboardOpen} onClose={() => setIsLeaderboardOpen(false)} />
       </div>
 
-      {/* ── Right: Quick Order + My Orders ── */}
+      {/* ── Right: Running Trade + My Orders ── */}
       <div className="arena-right">
-        <QuickOrderPanel
-          price={orderPrice}
-          setPrice={setOrderPrice}
-          oneClickTrading={oneClickTrading}
-          setOneClickTrading={setOneClickTrading}
-        />
+        <RunningTradePanel />
         <MyOrdersPanel />
       </div>
 

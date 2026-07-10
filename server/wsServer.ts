@@ -1,16 +1,11 @@
 // ============================================================
 // WebSocket Server — Real-time communication layer
 //
-// Order accounting rules:
-//  • BUY  placed  → reserve cash (cashBalance -= price × qty)
-//  • BUY  active fill (aggressor, immediate) → credit position, refund overpay
-//  • BUY  passive fill (resting order hit)   → credit position (cash already reserved)
-//  • BUY  cancel  → refund remaining reserved cash
+// Accounting rules are enforced by AccountEngine exclusively.
+// wsServer only: receives messages → validates → calls AccountEngine
+//                                  → sends response to clients.
 //
-//  • SELL placed  → reserve position (stockPosition -= qty)
-//  • SELL active fill  → credit cash + realize PnL
-//  • SELL passive fill → credit cash + realize PnL
-//  • SELL cancel  → restore remaining reserved position
+// NO manual balance/position manipulation is done here.
 // ============================================================
 
 import { WebSocketServer, WebSocket } from 'ws';
@@ -26,33 +21,64 @@ import {
   Timeframe,
 } from '../engine/types';
 import { authenticateUser, UserAccount, formatRupiah } from '../lib/users';
+import { AccountEngine, AccountState } from '../engine/accountEngine';
+
+// Simple throttle helper
+function throttle(func: Function, limit: number) {
+  let inThrottle: boolean;
+  let lastArgs: any[];
+  return function(this: any, ...args: any[]) {
+    lastArgs = args;
+    if (!inThrottle) {
+      func.apply(this, lastArgs);
+      inThrottle = true;
+      setTimeout(() => {
+        inThrottle = false;
+        // if we received new args during the throttle period, fire once more
+        if (lastArgs !== args) {
+           func.apply(this, lastArgs);
+        }
+      }, limit);
+    }
+  }
+}
+
+// ── Helper: AccountState → PlayerStats (WS wire format) ──────
+
+function stateToStats(s: AccountState): PlayerStats {
+  return {
+    initialBalance: s.initialBalance,
+    cashBalance: s.cashBalance,
+    activeBalance: s.activeBalance,
+    availableBalance: s.availableBalance,
+    stockPosition: s.stockPosition,
+    avgBuyPrice: s.avgBuyPrice,
+    portfolioValue: s.portfolioValue,
+    totalEquity: s.totalEquity,
+    unrealizedPnL: s.unrealizedPnL,
+    realizedPnL: s.realizedPnL,
+    returnPct: s.returnPct,
+    totalTrades: s.totalTrades,
+    totalBought: s.totalBought,
+    totalSold: s.totalSold,
+    winTrade: s.winTrade,
+    lossTrade: s.lossTrade,
+    winRate: s.winRate,
+  };
+}
+
+// ── Persistent Session ────────────────────────────────────────
+
+interface PlayerSession {
+  account: AccountEngine;
+}
 
 interface ConnectedClient {
   ws: WebSocket;
   playerId: string;
   user: UserAccount | null;
-  stats: PlayerStats;
+  account: AccountEngine;
   isAlive: boolean;
-
-  // Resting BUY orders: orderId → reserved cash amount
-  reservedCash: Map<string, number>;
-  // Resting SELL orders: orderId → reserved position lots
-  reservedPosition: Map<string, number>;
-  // All resting orders: orderId → cumulative filledQty seen so far
-  filledSoFar: Map<string, number>;
-}
-
-function makeInitialStats(balance: number): PlayerStats {
-  return {
-    cashBalance: balance,
-    stockPosition: 0,
-    avgBuyPrice: 0,
-    realizedPnL: 0,
-    unrealizedPnL: 0,
-    totalTrades: 0,
-    totalBought: 0,
-    totalSold: 0,
-  };
 }
 
 function makeClient(ws: WebSocket, playerId: string): ConnectedClient {
@@ -60,11 +86,8 @@ function makeClient(ws: WebSocket, playerId: string): ConnectedClient {
     ws,
     playerId,
     user: null,
-    stats: makeInitialStats(0),
+    account: new AccountEngine(0), // replaced on login
     isAlive: true,
-    reservedCash: new Map(),
-    reservedPosition: new Map(),
-    filledSoFar: new Map(),
   };
 }
 
@@ -72,16 +95,19 @@ export class ArenaWSServer {
   private wss: WebSocketServer;
   private engine: Engine;
   private clients: Map<string, ConnectedClient> = new Map();
+  private sessions: Map<string, PlayerSession> = new Map();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private leaderboardInterval: ReturnType<typeof setInterval> | null = null;
   private onlineUsers: Set<string> = new Set();
 
   constructor(wsPort: number = 3001) {
-    this.engine = new Engine(5000);
+    this.engine = new Engine(300);
     this.wss = new WebSocketServer({ port: wsPort });
 
     this.setupEngineEvents();
     this.setupWebSocket();
     this.startHeartbeat();
+    this.startLeaderboardBroadcast();
     this.engine.start();
 
     console.log(`[Arena WS] WebSocket server started on port ${wsPort}`);
@@ -94,19 +120,25 @@ export class ArenaWSServer {
   shutdown(): void {
     this.engine.stop();
     if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    if (this.leaderboardInterval) clearInterval(this.leaderboardInterval);
     this.wss.close();
   }
 
   // ── Engine Events → Broadcast ─────────────────────────────
 
   private setupEngineEvents(): void {
+    // Throttle order book updates to max 10 per second (100ms)
+    const throttledOrderBookBroadcast = throttle((asks: any, bids: any) => {
+      this.broadcastAuth({ type: 'order_book_update', payload: { asks, bids } });
+    }, 100);
+
     this.engine.setEvents({
       onExecution: (exec) => {
         this.broadcastAuth({ type: 'execution', payload: exec });
       },
 
       onOrderBookUpdate: (asks, bids) => {
-        this.broadcastAuth({ type: 'order_book_update', payload: { asks, bids } });
+        throttledOrderBookBroadcast(asks, bids);
       },
 
       onRunningTrade: (trade) => {
@@ -121,32 +153,25 @@ export class ArenaWSServer {
             playerCount: this.getPlayerCount(),
           },
         });
-        // Update unrealized PnL for all players with open positions
-        this.updateUnrealizedPnL(snap.lastPrice);
+        // Notify AccountEngine of new price for all players with open positions
+        this.onPriceUpdate(snap.lastPrice);
       },
 
       onOHLCUpdate: (timeframe: Timeframe, bar) => {
         this.broadcastAuth({ type: 'ohlc_update', payload: { timeframe, bar } });
       },
 
-      // ── Order update callback ─────────────────────────────
-      // This fires for:
-      //   1. PASSIVE fills: a resting player order was hit by an aggressor (bot or other player)
-      //   2. ACTIVE fills:  the aggressor's own order (fires DURING engine.submitOrder())
-      //
-      // We only process PASSIVE fills here.
-      // ACTIVE fills are handled in handleClientMessage after engine.submitOrder() returns.
-      // DISTINCTION: passive orders are tracked in reservedCash/reservedPosition maps.
+      // ── PASSIVE fills: a resting player order was hit by an aggressor ──
+      // Active (aggressor) fills are handled after engine.submitOrder() returns.
       onOrderUpdate: (order: Order) => {
         const client = this.clients.get(order.playerId);
         if (!client || !client.user) return;
 
-        // Always send the order status update to the client
+        // Always send order status update
         this.send(client.ws, { type: 'my_order_update', payload: order });
 
-        // Is this a passive fill? Check if this order is tracked as a resting order.
-        const isPassiveBuy = client.reservedCash.has(order.id);
-        const isPassiveSell = client.reservedPosition.has(order.id);
+        const isPassiveBuy = client.account.pendingBuyReserves.has(order.id);
+        const isPassiveSell = client.account.pendingSellReserves.has(order.id);
 
         if ((isPassiveBuy || isPassiveSell) && order.filledQty > 0) {
           this.processPassiveFill(client, order);
@@ -155,77 +180,52 @@ export class ArenaWSServer {
     });
   }
 
-  // ── Passive fill processor ─────────────────────────────────
-  // Called when a resting player order gets hit.
-  // Uses filledSoFar delta to know exactly how many lots just filled.
+  // ── Passive fill processor ────────────────────────────────
+  // Called when a resting player order gets hit by another party.
 
   private processPassiveFill(client: ConnectedClient, order: Order): void {
-    const previousFilled = client.filledSoFar.get(order.id) ?? 0;
+    const acct = client.account;
+    const snap = this.engine.getSnapshot();
+    const lastPrice = snap.lastPrice > 0 ? snap.lastPrice : order.price;
+
+    const previousFilled = acct.filledSoFar.get(order.id) ?? 0;
     const justFilled = order.filledQty - previousFilled;
     if (justFilled <= 0) return;
 
-    const fillPrice = order.price; // limit orders always fill at their price
-    const stats = client.stats;
+    const fillPrice = order.price;
 
     if (order.side === OrderSide.BUY) {
-      // Cash was already reserved when order was placed — no cash change.
-      // Just credit the stock position.
-      const prevCost = stats.avgBuyPrice * stats.stockPosition;
-      stats.stockPosition += justFilled;
-      stats.avgBuyPrice = stats.stockPosition > 0
-        ? (prevCost + fillPrice * justFilled) / stats.stockPosition
-        : 0;
-      stats.totalBought += justFilled;
-      stats.totalTrades += 1;
-
+      acct.onBuyExecution(order.id, fillPrice, justFilled, lastPrice);
     } else if (order.side === OrderSide.SELL) {
-      // Credit cash proceeds + realize PnL
-      const proceeds = fillPrice * justFilled;
-      stats.cashBalance += proceeds;
-      const pnl = (fillPrice - stats.avgBuyPrice) * justFilled;
-      stats.realizedPnL += pnl;
-      stats.totalSold += justFilled;
-      stats.totalTrades += 1;
-      if (stats.stockPosition <= 0) stats.avgBuyPrice = 0;
+      acct.onSellExecution(order.id, fillPrice, justFilled, lastPrice);
     }
 
-    // Update unrealized PnL mark-to-market
-    const snap = this.engine.getSnapshot();
-    const lastPrice = snap.lastPrice > 0 ? snap.lastPrice : fillPrice;
-    stats.unrealizedPnL = stats.stockPosition > 0
-      ? (lastPrice - stats.avgBuyPrice) * stats.stockPosition
-      : 0;
-
-    // Update tracking maps
     if (order.status === OrderStatus.FILLED) {
-      client.filledSoFar.delete(order.id);
-      client.reservedCash.delete(order.id);
-      client.reservedPosition.delete(order.id);
-    } else {
-      // Partial fill — update seen counter
-      client.filledSoFar.set(order.id, order.filledQty);
+      acct.onOrderCompleted(order.id);
     }
 
-    this.send(client.ws, { type: 'stats_update', payload: { ...stats } });
+    this.send(client.ws, { type: 'stats_update', payload: stateToStats(acct.getState()) });
   }
 
-  // ── Unrealized PnL broadcast ──────────────────────────────
+  // ── Price update broadcast ────────────────────────────────
 
-  private updateUnrealizedPnL(lastPrice: number): void {
+  private onPriceUpdate(lastPrice: number): void {
     for (const [, client] of this.clients) {
-      if (!client.user || client.stats.stockPosition === 0) continue;
-      client.stats.unrealizedPnL =
-        (lastPrice - client.stats.avgBuyPrice) * client.stats.stockPosition;
-      this.send(client.ws, { type: 'stats_update', payload: { ...client.stats } });
+      if (!client.user || client.account.getPosition() === 0) continue;
+      client.account.onPriceUpdate(lastPrice);
+      this.send(client.ws, {
+        type: 'stats_update',
+        payload: stateToStats(client.account.getState()),
+      });
     }
   }
 
-  // ── WebSocket Connection Setup ─────────────────────────────
+  // ── WebSocket Connection Setup ────────────────────────────
 
   private setupWebSocket(): void {
     this.wss.on('connection', (ws: WebSocket) => {
       const connId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-      let currentId = connId; // Tracks the map key (changes to user.id after login)
+      let currentId = connId;
 
       const client = makeClient(ws, currentId);
       this.clients.set(currentId, client);
@@ -239,7 +239,7 @@ export class ArenaWSServer {
         try {
           const msg: WSClientMessage = JSON.parse(data.toString());
           this.handleClientMessage(currentId, msg, (newId) => {
-            currentId = newId; // Update the ID when login succeeds
+            currentId = newId;
           });
         } catch {
           this.send(ws, { type: 'error', payload: { message: 'Format pesan tidak valid.' } });
@@ -285,11 +285,18 @@ export class ArenaWSServer {
         return;
       }
 
-      // Upgrade connection to real player
+      // Persistent session logic — keep account between reconnects
+      let session = this.sessions.get(user.id);
+      if (!session) {
+        session = { account: new AccountEngine(user.balance) };
+        this.sessions.set(user.id, session);
+      }
+
+      // Upgrade connection
       this.clients.delete(clientId);
       client.playerId = user.id;
       client.user = user;
-      client.stats = makeInitialStats(user.balance);
+      client.account = session.account;
       this.clients.set(user.id, client);
       this.onlineUsers.add(user.id);
       onIdChanged(user.id);
@@ -299,6 +306,11 @@ export class ArenaWSServer {
       const snapshot = this.engine.getSnapshot();
       const ohlc = this.engine.getOHLCData();
 
+      // Sync unrealized with current price on reconnect
+      if (snapshot.lastPrice > 0) {
+        client.account.onPriceUpdate(snapshot.lastPrice);
+      }
+
       this.send(client.ws, {
         type: 'welcome',
         payload: {
@@ -307,7 +319,7 @@ export class ArenaWSServer {
           balance: user.balance,
           role: user.role,
           avatar: user.avatar,
-          stats: { ...client.stats },
+          stats: stateToStats(client.account.getState()),
           snapshot,
           ohlc,
         },
@@ -350,142 +362,124 @@ export class ArenaWSServer {
     payload: { side: OrderSide; orderType: OrderType; price: number; quantity: number }
   ): void {
     const { side, orderType, price, quantity } = payload;
-    const stats = client.stats;
+    const acct = client.account;
+    const snap = this.engine.getSnapshot();
+    const lastPrice = snap.lastPrice;
 
     if (quantity <= 0) {
       this.send(client.ws, { type: 'error', payload: { message: 'Lot harus lebih dari 0.' } });
       return;
     }
 
-    // ── BUY order ────────────────────────────────────────
+    // ── BUY order ─────────────────────────────────────────
     if (side === OrderSide.BUY) {
-      const snap = this.engine.getSnapshot();
-      // For market orders, estimate using lastPrice; for limit, use limit price
       const reservePrice = orderType === OrderType.MARKET
-        ? (snap.lastPrice > 0 ? snap.lastPrice : price)
+        ? (lastPrice > 0 ? lastPrice : price)
         : price;
-      const requiredCash = reservePrice * quantity;
 
-      if (requiredCash > stats.cashBalance) {
+      // Check if player can afford this (without reserving yet)
+      if (!acct.canAffordBuy(reservePrice, quantity)) {
+        const required = reservePrice * quantity * 100;
         this.send(client.ws, {
           type: 'error',
-          payload: { message: `Saldo tidak cukup. Butuh ${formatRupiah(requiredCash)}, tersedia ${formatRupiah(stats.cashBalance)}.` },
+          payload: {
+            message: `Saldo tidak cukup. Butuh ${formatRupiah(required)}, tersedia ${formatRupiah(acct.getAvailableBalance())}.`,
+          },
         });
         return;
       }
 
-      // Reserve cash immediately
-      stats.cashBalance -= requiredCash;
-
+      // Submit to matching engine
       let result: ReturnType<Engine['submitOrder']>;
       try {
-        // NOTE: onOrderUpdate fires INSIDE here for the aggressor's own fill.
-        // We do NOT process those in onOrderUpdate (reservedCash not set yet).
         result = this.engine.submitOrder(client.user!.id, side, orderType, price, quantity);
       } catch (err: unknown) {
-        stats.cashBalance += requiredCash; // rollback
-        this.send(client.ws, { type: 'error', payload: { message: err instanceof Error ? err.message : 'Gagal submit order.' } });
+        this.send(client.ws, {
+          type: 'error',
+          payload: { message: err instanceof Error ? err.message : 'Gagal submit order.' },
+        });
         return;
       }
 
       const order = result.order;
       const executions = result.executions;
 
-      // ── Process ACTIVE (immediate) fills ─────────────
-      // Use the returned executions for accurate accounting.
-      let totalActiveCost = 0;
-      let totalActiveQty = 0;
+      // Process immediate (aggressor) fills
+      let totalFillLots = 0;
       for (const exec of executions) {
         if (exec.buyOrderId === order.id) {
-          const prevCost = stats.avgBuyPrice * stats.stockPosition;
-          stats.stockPosition += exec.volume;
-          stats.avgBuyPrice = stats.stockPosition > 0
-            ? (prevCost + exec.price * exec.volume) / stats.stockPosition
-            : 0;
-          stats.totalBought += exec.volume;
-          stats.totalTrades += 1;
-          totalActiveCost += exec.price * exec.volume;
-          totalActiveQty += exec.volume;
+          acct.onBuyExecution(order.id, exec.price, exec.volume, lastPrice);
+          totalFillLots += exec.volume;
         }
       }
 
-      // Refund difference between reserved and actual fill cost
-      const overpay = requiredCash - totalActiveCost;
-      stats.cashBalance += overpay;
-
-      // If order still has remaining qty resting on book, track it
-      const remainingQty = quantity - totalActiveQty;
-      if (remainingQty > 0 && order.status !== OrderStatus.FILLED) {
-        client.reservedCash.set(order.id, reservePrice * remainingQty);
-        client.filledSoFar.set(order.id, totalActiveQty);
+      // If order is fully filled, clean up
+      if (order.status === OrderStatus.FILLED) {
+        acct.onOrderCompleted(order.id);
+      } else {
+        // Order is resting (NEW or PARTIAL) — reserve cash for remaining qty
+        const remainingLots = quantity - totalFillLots;
+        if (remainingLots > 0) {
+          acct.reserveForBuy(order.id, reservePrice, remainingLots);
+        }
       }
 
-      // Update unrealized PnL
-      const lastPx = this.engine.getSnapshot().lastPrice;
-      stats.unrealizedPnL = stats.stockPosition > 0
-        ? (lastPx - stats.avgBuyPrice) * stats.stockPosition
-        : 0;
-
-      this.send(client.ws, { type: 'stats_update', payload: { ...stats } });
+      acct.onPriceUpdate(lastPrice);
+      this.send(client.ws, { type: 'stats_update', payload: stateToStats(acct.getState()) });
       this.send(client.ws, { type: 'my_order_update', payload: order });
       return;
     }
 
-    // ── SELL order ────────────────────────────────────────
+    // ── SELL order ─────────────────────────────────────────
     if (side === OrderSide.SELL) {
-      if (quantity > stats.stockPosition) {
+      // Check if player has enough position
+      if (!acct.canAffordSell(quantity)) {
         this.send(client.ws, {
           type: 'error',
-          payload: { message: `Posisi tidak cukup. Punya ${stats.stockPosition} lot, ingin jual ${quantity} lot.` },
+          payload: {
+            message: `Posisi tidak cukup. Punya ${acct.getPosition()} lot, ingin jual ${quantity} lot.`,
+          },
         });
         return;
       }
 
-      // Reserve position immediately
-      stats.stockPosition -= quantity;
-
+      // Submit to matching engine
       let result: ReturnType<Engine['submitOrder']>;
       try {
         result = this.engine.submitOrder(client.user!.id, side, orderType, price, quantity);
       } catch (err: unknown) {
-        stats.stockPosition += quantity; // rollback
-        this.send(client.ws, { type: 'error', payload: { message: err instanceof Error ? err.message : 'Gagal submit order.' } });
+        this.send(client.ws, {
+          type: 'error',
+          payload: { message: err instanceof Error ? err.message : 'Gagal submit order.' },
+        });
         return;
       }
 
       const order = result.order;
       const executions = result.executions;
 
-      // ── Process ACTIVE (immediate) fills ─────────────
-      let totalActiveQty = 0;
+      // Process immediate (aggressor) fills
+      let totalFillLots = 0;
       for (const exec of executions) {
         if (exec.sellOrderId === order.id) {
-          const proceeds = exec.price * exec.volume;
-          stats.cashBalance += proceeds;
-          const pnl = (exec.price - stats.avgBuyPrice) * exec.volume;
-          stats.realizedPnL += pnl;
-          stats.totalSold += exec.volume;
-          stats.totalTrades += 1;
-          totalActiveQty += exec.volume;
+          acct.onSellExecution(order.id, exec.price, exec.volume, lastPrice);
+          totalFillLots += exec.volume;
         }
       }
 
-      if (stats.stockPosition <= 0) stats.avgBuyPrice = 0;
-
-      // If order still has remaining qty resting on book, track it
-      const remainingQty = quantity - totalActiveQty;
-      if (remainingQty > 0 && order.status !== OrderStatus.FILLED) {
-        client.reservedPosition.set(order.id, remainingQty);
-        client.filledSoFar.set(order.id, totalActiveQty);
+      // If order is fully filled, clean up
+      if (order.status === OrderStatus.FILLED) {
+        acct.onOrderCompleted(order.id);
+      } else {
+        // Order is resting — reserve position for remaining qty
+        const remainingLots = quantity - totalFillLots;
+        if (remainingLots > 0) {
+          acct.reserveForSell(order.id, remainingLots);
+        }
       }
 
-      // Update unrealized PnL
-      const lastPx = this.engine.getSnapshot().lastPrice;
-      stats.unrealizedPnL = stats.stockPosition > 0
-        ? (lastPx - stats.avgBuyPrice) * stats.stockPosition
-        : 0;
-
-      this.send(client.ws, { type: 'stats_update', payload: { ...stats } });
+      acct.onPriceUpdate(lastPrice);
+      this.send(client.ws, { type: 'stats_update', payload: stateToStats(acct.getState()) });
       this.send(client.ws, { type: 'my_order_update', payload: order });
       return;
     }
@@ -499,29 +493,24 @@ export class ArenaWSServer {
     const result = this.engine.cancelOrder(orderId, client.user!.id);
 
     if (!result) {
-      this.send(client.ws, { type: 'error', payload: { message: 'Order tidak ditemukan atau bukan milik Anda.' } });
+      this.send(client.ws, {
+        type: 'error',
+        payload: { message: 'Order tidak ditemukan atau bukan milik Anda.' },
+      });
       return;
     }
 
-    const stats = client.stats;
-    const remainingQty = result.quantity; // from matchingEngine: bookOrder.remainingQty
+    const acct = client.account;
+    acct.onOrderCancelled(orderId, result.side);
 
-    if (client.reservedCash.has(orderId)) {
-      // BUY order cancelled: refund reserved cash for remaining qty
-      const refund = result.price * remainingQty;
-      stats.cashBalance += refund;
-      client.reservedCash.delete(orderId);
-    }
+    const snap = this.engine.getSnapshot();
+    if (snap.lastPrice > 0) acct.onPriceUpdate(snap.lastPrice);
 
-    if (client.reservedPosition.has(orderId)) {
-      // SELL order cancelled: restore reserved position for remaining qty
-      stats.stockPosition += remainingQty;
-      client.reservedPosition.delete(orderId);
-    }
-
-    client.filledSoFar.delete(orderId);
-
-    this.send(client.ws, { type: 'stats_update', payload: { ...stats } });
+    this.send(client.ws, {
+      type: 'stats_update',
+      payload: stateToStats(acct.getState()),
+    });
+    this.send(client.ws, { type: 'my_order_update', payload: result });
   }
 
   // ── Communication Helpers ─────────────────────────────────
@@ -554,5 +543,14 @@ export class ArenaWSServer {
         client.ws.ping();
       }
     }, 30000);
+  }
+
+  // ── Leaderboard Broadcast ─────────────────────────────────
+
+  private startLeaderboardBroadcast(): void {
+    this.leaderboardInterval = setInterval(() => {
+      const leaderboard = this.engine.getSultanLeaderboard();
+      this.broadcastAuth({ type: 'sultan_leaderboard_update', payload: leaderboard });
+    }, 1000); // 1-second update
   }
 }

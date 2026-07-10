@@ -1,13 +1,23 @@
 // ============================================================
-// Status Bar — Connection, player info, PnL, market info
+// Status Bar — Connection, player info, Equity, Return
+// All data comes directly from AccountEngine via server.
+// No client-side calculations.
 // ============================================================
 
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useMarket } from '../../hooks/useMarket';
+import PnLStatsPanel from './PnLStatsPanel';
 
-function fmtRp(v: number): string {
+function fmtBalance(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1_000_000_000) return `Rp ${(v / 1_000_000_000).toFixed(2)}M`;
+  if (abs >= 1_000_000) return `Rp ${(v / 1_000_000).toFixed(0)}jt`;
+  return `Rp ${Math.round(v).toLocaleString('id-ID')}`;
+}
+
+function fmtPnL(v: number): string {
   const abs = Math.abs(v);
   const sign = v >= 0 ? '+' : '-';
   if (abs >= 1_000_000_000) return `${sign}Rp ${(abs / 1_000_000_000).toFixed(2)}M`;
@@ -15,15 +25,10 @@ function fmtRp(v: number): string {
   return `${sign}Rp ${Math.round(abs).toLocaleString('id-ID')}`;
 }
 
-function fmtBalance(v: number): string {
-  if (v >= 1_000_000_000) return `Rp ${(v / 1_000_000_000).toFixed(1)}M`;
-  if (v >= 1_000_000) return `Rp ${(v / 1_000_000).toFixed(0)}jt`;
-  return `Rp ${Math.round(v).toLocaleString('id-ID')}`;
-}
-
 export default function StatusBar() {
   const { connectionStatus, playerCount, lastPrice, avatar, username, role, stats } = useMarket();
   const [time, setTime] = useState('');
+  const [isStatsOpen, setIsStatsOpen] = useState(false);
 
   useEffect(() => {
     const tick = () => {
@@ -43,13 +48,16 @@ export default function StatusBar() {
     connectionStatus === 'connected' ? 'Connected' :
     connectionStatus === 'reconnecting' ? 'Reconnecting...' : 'Disconnected';
 
-  const pnlTotal = stats.realizedPnL + stats.unrealizedPnL;
-  const pnlColor = pnlTotal >= 0 ? '#00e676' : '#ff1744';
-  const realizedColor = stats.realizedPnL >= 0 ? '#00e676' : '#ff1744';
+  // All values come directly from AccountEngine via server — no client-side math
+  const pnlColor = stats.realizedPnL >= 0 ? '#00e676' : '#ff1744';
+  const equityColor = '#bb86fc';
+  const returnPct = stats.returnPct || 0;
+  const returnColor = returnPct >= 0 ? '#00e676' : '#ff1744';
+  const returnSign = returnPct >= 0 ? '+' : '';
 
   return (
     <div className="status-bar">
-      {/* Left: connection + players */}
+      {/* Left: connection + players + price */}
       <div className="sb-left">
         <div className="sb-item">
           <div className="sb-dot" style={{ backgroundColor: statusColor }} />
@@ -74,24 +82,37 @@ export default function StatusBar() {
         <span className="sb-brand">ORDER BOOK ARENA</span>
       </div>
 
-      {/* Right: PnL + user info */}
+      {/* Right: PnL + equity + user */}
       <div className="sb-right">
         {/* Realized PnL */}
         <div className="sb-item">
           <span className="sb-label">Realized</span>
-          <span className="sb-value" style={{ color: realizedColor, fontWeight: 600 }}>
-            {fmtRp(stats.realizedPnL)}
+          <span className="sb-value" style={{ color: pnlColor, fontWeight: 600 }}>
+            {fmtPnL(stats.realizedPnL)}
           </span>
         </div>
         <div className="sb-divider" />
-        {/* Total PnL */}
-        <div className="sb-item">
-          <span className="sb-label">Total PnL</span>
-          <span className="sb-value" style={{ color: pnlColor, fontWeight: 700 }}>
-            {fmtRp(pnlTotal)}
-          </span>
+
+        {/* Total Equity — click to open stats */}
+        <div className="sb-item sb-clickable" onClick={() => setIsStatsOpen(!isStatsOpen)}>
+          <span className="sb-label">Equity ▾</span>
+          <div className="flex items-center gap-2">
+            <span className="sb-value" style={{ color: equityColor, fontWeight: 700 }}>
+              {fmtBalance(stats.totalEquity)}
+            </span>
+            <span
+              className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+              style={{
+                backgroundColor: `${returnColor}20`,
+                color: returnColor,
+              }}
+            >
+              {returnSign}{returnPct.toFixed(2)}%
+            </span>
+          </div>
         </div>
         <div className="sb-divider" />
+
         {/* Cash balance */}
         <div className="sb-item">
           <span className="sb-label">Saldo</span>
@@ -100,6 +121,7 @@ export default function StatusBar() {
           </span>
         </div>
         <div className="sb-divider" />
+
         {/* Position */}
         {stats.stockPosition > 0 && (
           <>
@@ -112,6 +134,7 @@ export default function StatusBar() {
             <div className="sb-divider" />
           </>
         )}
+
         {/* User identity */}
         <div className="sb-item" style={{ gap: '0.4rem' }}>
           <span style={{ fontSize: '1rem', lineHeight: 1 }}>{avatar ?? '👤'}</span>
@@ -131,6 +154,9 @@ export default function StatusBar() {
           <span className="sb-time">{time}</span>
         </div>
       </div>
+
+      {/* PnL Stats Drawer */}
+      <PnLStatsPanel isOpen={isStatsOpen} onClose={() => setIsStatsOpen(false)} />
     </div>
   );
 }

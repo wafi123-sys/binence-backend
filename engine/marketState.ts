@@ -13,7 +13,7 @@ import {
 const MAX_RUNNING_TRADES = 200;
 
 export class MarketState {
-  private _lastPrice: number = 0;
+  private _lastPrice: number = 5000;
   private _lastVolume: number = 0;
   private _lastSide: OrderSide | null = null;
   private _runningTrades: RunningTrade[] = [];

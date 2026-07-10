@@ -22,11 +22,12 @@ const TIMEFRAMES: { label: string; value: Timeframe }[] = [
   { label: '30m',  value: '30m' },
   { label: '1h',   value: '1h' },
   { label: 'D',    value: '1d' },
+  { label: 'W',    value: '1w' as Timeframe },
 ];
 
 export default function CandlestickChart() {
   const { ohlcData, lastPrice } = useMarket();
-  const [selectedTf, setSelectedTf] = useState<Timeframe>('5s');
+  const [selectedTf, setSelectedTf] = useState<Timeframe>('1w' as Timeframe);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Store chart & series refs as `any` because LW Charts v5 types changed significantly
@@ -36,6 +37,8 @@ export default function CandlestickChart() {
   const candleRef    = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const volumeRef    = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trendlineRef = useRef<any>(null);
   const resizeObRef  = useRef<ResizeObserver | null>(null);
   const isReadyRef   = useRef(false);
 
@@ -52,6 +55,7 @@ export default function CandlestickChart() {
         CrosshairMode,
         CandlestickSeries,  // v5 aliased export (candlestickSeries as CandlestickSeries)
         HistogramSeries,    // v5 aliased export (histogramSeries as HistogramSeries)
+        LineSeries,
       } = lw as any;
 
       if (destroyed || !chartContainerRef.current) return;
@@ -111,9 +115,18 @@ export default function CandlestickChart() {
         scaleMargins: { top: 0.8, bottom: 0 },
       });
 
+      const tSeries = chart.addSeries(LineSeries, {
+        color: '#ff1744',
+        lineWidth: 2,
+        crosshairMarkerVisible: false,
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+
       chartRef.current  = chart;
       candleRef.current = cSeries;
       volumeRef.current = vSeries;
+      trendlineRef.current = tSeries;
       isReadyRef.current = true;
 
       // Resize observer
@@ -174,6 +187,17 @@ export default function CandlestickChart() {
             : 'rgba(255,23,68,0.3)',
         }))
       );
+
+      if (sorted.length > 5 && selectedTf === '1w') {
+        const firstPoint = sorted[0];
+        const currentPoint = sorted[sorted.length - 1];
+        trendlineRef.current.setData([
+          { time: firstPoint.time, value: firstPoint.low * 0.95 },
+          { time: currentPoint.time, value: currentPoint.low * 0.95 },
+        ]);
+      } else {
+        trendlineRef.current.setData([]);
+      }
 
       // Scroll to latest
       chartRef.current?.timeScale().scrollToRealTime();

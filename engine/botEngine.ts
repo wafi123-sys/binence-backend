@@ -1,14 +1,15 @@
 // ============================================================
-// Bot Engine — Market maker bot to keep the order book alive
-// Seeds initial orders and periodically adds/modifies/cancels
-// orders to simulate realistic market activity.
+// Bot Engine — Multi-Agent Market Simulator
+// Simulates Market Makers, Pro Scalpers, and Whales.
 // ============================================================
 
 import { OrderSide, OrderType } from './types';
 import { OrderEngine } from './orderEngine';
 import { MatchingEngine } from './matchingEngine';
 
-const BOT_PLAYER_ID = '__bot__';
+const BOT_MM_ID = '__bot_mm__';
+const BOT_SCALPER_ID = '__bot_scalp__';
+const BOT_WHALE_ID = '__bot_whale__';
 
 interface BotOrder {
   orderId: string;
@@ -19,11 +20,15 @@ interface BotOrder {
 export class BotEngine {
   private orderEngine: OrderEngine;
   private matchingEngine: MatchingEngine;
-  private botOrders: BotOrder[] = [];
+  
+  private mmOrders: BotOrder[] = [];
   private basePrice: number;
-  private interval: ReturnType<typeof setInterval> | null = null;
   private tickSize: number = 1;
-  private spread: number = 3; // min spread in ticks
+  
+  // Timers
+  private mmInterval: ReturnType<typeof setInterval> | null = null;
+  private scalperInterval: ReturnType<typeof setInterval> | null = null;
+  private whaleInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     orderEngine: OrderEngine,
@@ -35,246 +40,161 @@ export class BotEngine {
     this.basePrice = basePrice;
   }
 
-  /**
-   * Seed the initial order book with realistic orders.
-   */
   seedOrderBook(): void {
     const midPrice = this.basePrice;
 
-    // Create ask levels (offers) - 10 levels above mid
-    for (let i = 1; i <= 10; i++) {
-      const price = midPrice + i * this.tickSize;
-      const numOrders = Math.max(1, Math.floor(Math.random() * 5) + 1);
+    // Seed 20 levels deep
+    for (let i = 1; i <= 20; i++) {
+      const askPrice = midPrice + i * this.tickSize;
+      const askQty = this.randomLot(10, 200);
+      this.orderEngine.submitOrder(BOT_MM_ID, OrderSide.SELL, OrderType.LIMIT, askPrice, askQty);
 
-      for (let j = 0; j < numOrders; j++) {
-        const qty = this.randomLot();
-        try {
-          const result = this.orderEngine.submitOrder(
-            BOT_PLAYER_ID,
-            OrderSide.SELL,
-            OrderType.LIMIT,
-            price,
-            qty
-          );
-          this.botOrders.push({
-            orderId: result.order.id,
-            side: OrderSide.SELL,
-            price,
-          });
-        } catch {
-          // Skip failed orders
-        }
-      }
-    }
-
-    // Create bid levels - 10 levels below mid
-    for (let i = 1; i <= 10; i++) {
-      const price = midPrice - i * this.tickSize;
-      const numOrders = Math.max(1, Math.floor(Math.random() * 5) + 1);
-
-      for (let j = 0; j < numOrders; j++) {
-        const qty = this.randomLot();
-        try {
-          const result = this.orderEngine.submitOrder(
-            BOT_PLAYER_ID,
-            OrderSide.BUY,
-            OrderType.LIMIT,
-            price,
-            qty
-          );
-          this.botOrders.push({
-            orderId: result.order.id,
-            side: OrderSide.BUY,
-            price,
-          });
-        } catch {
-          // Skip failed orders
-        }
-      }
+      const bidPrice = midPrice - i * this.tickSize;
+      const bidQty = this.randomLot(10, 200);
+      this.orderEngine.submitOrder(BOT_MM_ID, OrderSide.BUY, OrderType.LIMIT, bidPrice, bidQty);
     }
   }
 
-  /**
-   * Start the bot — periodically adds, modifies, or cancels orders
-   * to simulate market activity.
-   */
-  start(intervalMs: number = 800): void {
-    if (this.interval) return;
+  start(): void {
+    if (this.mmInterval) return;
 
-    this.interval = setInterval(() => {
-      this.tick();
-    }, intervalMs);
+    // 1. Market Maker (Moderate - 300ms)
+    // Keeps liquidity tighter
+    this.mmInterval = setInterval(() => this.tickMarketMaker(), 300);
+
+    // 2. Pro Scalper (Slower - 800ms)
+    // Front-runs and eats spread intelligently
+    this.scalperInterval = setInterval(() => this.tickScalper(), 800);
+
+    // 3. Whale Bot (Random, roughly every 10 seconds)
+    // Places huge walls or market dumps
+    this.whaleInterval = setInterval(() => this.tickWhale(), 10000);
   }
 
-  /**
-   * Stop the bot.
-   */
   stop(): void {
-    if (this.interval) {
-      clearInterval(this.interval);
-      this.interval = null;
-    }
+    if (this.mmInterval) clearInterval(this.mmInterval);
+    if (this.scalperInterval) clearInterval(this.scalperInterval);
+    if (this.whaleInterval) clearInterval(this.whaleInterval);
+    this.mmInterval = null;
+    this.scalperInterval = null;
+    this.whaleInterval = null;
   }
 
-  // ── Private Methods ──────────────────────────────────────────
+  // ── 1. Market Maker (Liquidity) ────────────────────────────────
 
-  private tick(): void {
-    const action = Math.random();
-
-    if (action < 0.35) {
-      // 35% chance: Add new order near best bid/ask
-      this.addOrder();
-    } else if (action < 0.55) {
-      // 20% chance: Cancel a random bot order
-      this.cancelRandomOrder();
-    } else if (action < 0.75) {
-      // 20% chance: Aggressive market order to create trades
-      this.aggressiveOrder();
-    } else {
-      // 25% chance: Replenish thin levels
-      this.replenishLevels();
-    }
-  }
-
-  private addOrder(): void {
-    const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
+  private tickMarketMaker(): void {
     const bestBid = this.matchingEngine.getBestBid();
     const bestAsk = this.matchingEngine.getBestAsk();
+    
+    // Clean up old tracked orders randomly to prevent infinite buildup
+    if (this.mmOrders.length > 50 && Math.random() < 0.2) {
+      const idx = Math.floor(Math.random() * this.mmOrders.length);
+      this.orderEngine.cancelOrder(this.mmOrders[idx].orderId, BOT_MM_ID);
+      this.mmOrders.splice(idx, 1);
+    }
 
     if (bestBid === 0 || bestAsk === 0) {
-      this.replenishLevels();
+      this.seedOrderBook();
       return;
     }
 
+    const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
+    // 60% chance to place at tightest spread (offset 1)
+    const offset = Math.random() < 0.6 ? 1 : Math.floor(Math.random() * 3) + 2;
+    
     let price: number;
     if (side === OrderSide.BUY) {
-      // Place bid slightly below best ask
-      const offset = Math.floor(Math.random() * 5) + 1;
       price = bestAsk - offset * this.tickSize;
       if (price <= 0) price = bestBid;
     } else {
-      // Place ask slightly above best bid
-      const offset = Math.floor(Math.random() * 5) + 1;
       price = bestBid + offset * this.tickSize;
     }
 
-    const qty = this.randomLot();
-
+    const qty = this.randomLot(5, 50);
     try {
-      const result = this.orderEngine.submitOrder(
-        BOT_PLAYER_ID,
-        side,
-        OrderType.LIMIT,
-        price,
-        qty
-      );
+      const result = this.orderEngine.submitOrder(BOT_MM_ID, side, OrderType.LIMIT, price, qty);
       if (result.order.status !== 'FILLED') {
-        this.botOrders.push({
-          orderId: result.order.id,
-          side,
-          price,
-        });
+        this.mmOrders.push({ orderId: result.order.id, side, price });
       }
-    } catch {
-      // Ignore
+    } catch {}
+  }
+
+  // ── 2. Pro Scalper (HFT) ──────────────────────────────────────
+
+  private tickScalper(): void {
+    const bestBid = this.matchingEngine.getBestBid();
+    const bestAsk = this.matchingEngine.getBestAsk();
+    
+    if (bestBid === 0 || bestAsk === 0) return;
+    
+    const spread = bestAsk - bestBid;
+    
+    // If spread is large enough (> 1 tick), front-run it!
+    if (spread > this.tickSize) {
+      const frontRunBid = bestBid + this.tickSize;
+      const frontRunAsk = bestAsk - this.tickSize;
+      
+      const qty = this.randomLot(50, 300);
+      try {
+        if (Math.random() > 0.5) {
+          this.orderEngine.submitOrder(BOT_SCALPER_ID, OrderSide.BUY, OrderType.LIMIT, frontRunBid, qty);
+        } else {
+          this.orderEngine.submitOrder(BOT_SCALPER_ID, OrderSide.SELL, OrderType.LIMIT, frontRunAsk, qty);
+        }
+      } catch {}
+    } else {
+      // If spread is tight, occasionally eat the book (Aggressive market-like limit order)
+      if (Math.random() < 0.3) {
+        const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
+        const aggressivePx = side === OrderSide.BUY ? bestAsk : bestBid;
+        const qty = this.randomLot(10, 100);
+        try {
+          this.orderEngine.submitOrder(BOT_SCALPER_ID, side, OrderType.LIMIT, aggressivePx, qty);
+        } catch {}
+      }
     }
   }
 
-  private cancelRandomOrder(): void {
-    if (this.botOrders.length === 0) return;
+  // ── 3. Whale Bot (Manipulation) ───────────────────────────────
 
-    const idx = Math.floor(Math.random() * this.botOrders.length);
-    const orderToCancel = this.botOrders[idx];
-
-    this.orderEngine.cancelOrder(orderToCancel.orderId, BOT_PLAYER_ID);
-    this.botOrders.splice(idx, 1);
-  }
-
-  private aggressiveOrder(): void {
-    const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
-    const qty = Math.floor(Math.random() * 30) + 5; // Small aggressive orders
+  private tickWhale(): void {
+    if (Math.random() < 0.3) return; // Sometimes sleep
 
     const bestBid = this.matchingEngine.getBestBid();
     const bestAsk = this.matchingEngine.getBestAsk();
-
     if (bestBid === 0 || bestAsk === 0) return;
 
-    try {
-      if (side === OrderSide.BUY) {
-        // Buy at best ask (crossing the spread)
-        this.orderEngine.submitOrder(
-          BOT_PLAYER_ID,
-          OrderSide.BUY,
-          OrderType.LIMIT,
-          bestAsk,
-          qty
-        );
-      } else {
-        // Sell at best bid (crossing the spread)
-        this.orderEngine.submitOrder(
-          BOT_PLAYER_ID,
-          OrderSide.SELL,
-          OrderType.LIMIT,
-          bestBid,
-          qty
-        );
+    const action = Math.random();
+
+    if (action < 0.5) {
+      // Put a massive WALL slightly away from the spread to scare retail
+      const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
+      const offset = Math.floor(Math.random() * 3) + 2; // 2-4 ticks away
+      const price = side === OrderSide.BUY 
+        ? bestAsk - offset * this.tickSize 
+        : bestBid + offset * this.tickSize;
+      
+      if (price > 0) {
+        const wallQty = this.randomLot(5000, 20000); // Massive lot
+        try {
+          this.orderEngine.submitOrder(BOT_WHALE_ID, side, OrderType.LIMIT, price, wallQty);
+        } catch {}
       }
-    } catch {
-      // Ignore
-    }
-
-    // Clean up filled bot orders
-    this.botOrders = this.botOrders.filter((bo) => {
-      const order = this.matchingEngine.getOrder(bo.orderId);
-      return order !== undefined;
-    });
-  }
-
-  private replenishLevels(): void {
-    const bestBid = this.matchingEngine.getBestBid();
-    const bestAsk = this.matchingEngine.getBestAsk();
-
-    const refPrice = bestBid > 0 && bestAsk > 0
-      ? Math.floor((bestBid + bestAsk) / 2)
-      : this.basePrice;
-
-    // Add some orders on both sides
-    const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
-    const offset = Math.floor(Math.random() * 8) + 1;
-    const price = side === OrderSide.BUY
-      ? refPrice - offset * this.tickSize
-      : refPrice + offset * this.tickSize;
-
-    if (price <= 0) return;
-
-    const qty = this.randomLot();
-
-    try {
-      const result = this.orderEngine.submitOrder(
-        BOT_PLAYER_ID,
-        side,
-        OrderType.LIMIT,
-        price,
-        qty
-      );
-      if (result.order.status !== 'FILLED') {
-        this.botOrders.push({
-          orderId: result.order.id,
-          side,
-          price,
-        });
-      }
-    } catch {
-      // Ignore
+    } else {
+      // Market DUMP / PUMP (Sweep the book)
+      const side = Math.random() > 0.5 ? OrderSide.BUY : OrderSide.SELL;
+      const sweepQty = this.randomLot(2000, 8000);
+      
+      try {
+        // Submit a Market Order to eat liquidity
+        this.orderEngine.submitOrder(BOT_WHALE_ID, side, OrderType.MARKET, 0, sweepQty);
+      } catch {}
     }
   }
 
-  private randomLot(): number {
-    // Generate realistic lot sizes: mostly small, occasionally large
-    const r = Math.random();
-    if (r < 0.4) return Math.floor(Math.random() * 50) + 10;     // 10-60
-    if (r < 0.7) return Math.floor(Math.random() * 200) + 50;    // 50-250
-    if (r < 0.9) return Math.floor(Math.random() * 500) + 100;   // 100-600
-    return Math.floor(Math.random() * 1000) + 500;                // 500-1500
+  // ── Helpers ───────────────────────────────────────────────────
+
+  private randomLot(min: number, max: number): number {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 }

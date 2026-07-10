@@ -23,6 +23,7 @@ import {
   Timeframe,
   Order,
   PlayerStats,
+  SultanBotStats,
 } from '../engine/types';
 
 // ── Market State Interface ──────────────────────────────────
@@ -68,6 +69,9 @@ interface MarketData {
   // Server error (from order rejection etc.)
   serverError: string | null;
 
+  // Leaderboard
+  sultanLeaderboard: SultanBotStats[];
+
   // Actions
   submitOrder: (side: OrderSide, orderType: OrderType, price: number, quantity: number) => void;
   cancelOrder: (orderId: string) => void;
@@ -75,14 +79,23 @@ interface MarketData {
 }
 
 const defaultStats: PlayerStats = {
+  initialBalance: 0,
   cashBalance: 0,
+  activeBalance: 0,
+  availableBalance: 0,
   stockPosition: 0,
   avgBuyPrice: 0,
-  realizedPnL: 0,
+  portfolioValue: 0,
+  totalEquity: 0,
   unrealizedPnL: 0,
+  realizedPnL: 0,
+  returnPct: 0,
   totalTrades: 0,
   totalBought: 0,
   totalSold: 0,
+  winTrade: 0,
+  lossTrade: 0,
+  winRate: 0,
 };
 
 const defaultOhlc: Record<Timeframe, OHLCBar[]> = {
@@ -122,17 +135,36 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const [runningTrades, setRunningTrades] = useState<RunningTrade[]>([]);
   const [ohlcData, setOhlcData] = useState<Record<Timeframe, OHLCBar[]>>(defaultOhlc);
   const [myOrders, setMyOrders] = useState<Order[]>([]);
+  const [sultanLeaderboard, setSultanLeaderboard] = useState<SultanBotStats[]>([]);
   const [serverError, setServerError] = useState<string | null>(null);
   const serverErrorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let wsUrl: string | undefined = undefined;
-    if (typeof window !== 'undefined' && (window as any).Capacitor?.isNative) {
-      const savedIp = localStorage.getItem('arena_server_ip');
-      const ip = prompt('Masukkan IP komputer server (contoh: 192.168.1.5)', savedIp || '192.168.1.5');
-      if (ip) {
-        localStorage.setItem('arena_server_ip', ip);
-        wsUrl = `ws://${ip}:3001`;
+    if (typeof window !== 'undefined') {
+      const isNative = (window as any).Capacitor?.isNative;
+      const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      
+      if (isNative || isRemote) {
+        // Read from query param if provided
+        const params = new URLSearchParams(window.location.search);
+        const urlWs = params.get('ws');
+        if (urlWs) {
+           localStorage.setItem('arena_ws_url', urlWs);
+        }
+
+        const savedUrl = localStorage.getItem('arena_ws_url');
+        if (savedUrl) {
+          if (savedUrl.startsWith('ws://') || savedUrl.startsWith('wss://')) {
+             wsUrl = savedUrl;
+          } else {
+             let clean = savedUrl.replace('http://', '').replace('https://', '').replace(/\/$/, '');
+             wsUrl = `wss://${clean}`;
+          }
+        } else {
+          // Default remote url if deployed without specifying
+          wsUrl = `wss://your-production-backend.up.railway.app`;
+        }
       }
     }
 
@@ -224,6 +256,10 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       });
     });
 
+    ws.on('onSultanLeaderboardUpdate', (leaderboard) => {
+      setSultanLeaderboard(leaderboard);
+    });
+
     ws.on('onConnectionChange', (status) => {
       setConnectionStatus(status);
       // Do NOT reset isAuthenticated here.
@@ -252,6 +288,7 @@ export function MarketProvider({ children }: { children: ReactNode }) {
 
   const submitOrder = useCallback(
     (side: OrderSide, orderType: OrderType, price: number, quantity: number) => {
+      console.log('[Market] submitOrder called:', { side, orderType, price, quantity });
       wsRef.current?.submitOrder(side, orderType, price, quantity);
     }, []
   );
@@ -269,13 +306,13 @@ export function MarketProvider({ children }: { children: ReactNode }) {
   const value: MarketData = {
     isAuthenticated, authError, login,
     playerId, username, balance, role, avatar,
-    stats,
-    connectionStatus, playerCount,
-    asks, bids,
-    lastPrice, lastVolume, lastSide,
-    runningTrades, ohlcData, myOrders,
-    serverError,
-    submitOrder, cancelOrder, modifyOrder,
+    stats, connectionStatus, playerCount,
+    asks, bids, lastPrice, lastVolume, lastSide,
+    runningTrades, ohlcData, myOrders, serverError,
+    sultanLeaderboard,
+    submitOrder,
+    cancelOrder,
+    modifyOrder,
   };
 
   return (

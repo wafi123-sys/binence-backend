@@ -16,6 +16,7 @@ import {
   Order,
   MarketSnapshot,
   PlayerStats,
+  SultanBotStats,
 } from '../engine/types';
 
 type EventCallback<T> = (data: T) => void;
@@ -46,6 +47,7 @@ interface WSClientEvents {
     playerCount: number;
   }>;
   onError: EventCallback<{ message: string }>;
+  onSultanLeaderboardUpdate: EventCallback<SultanBotStats[]>;
   onConnectionChange: EventCallback<'connected' | 'disconnected' | 'reconnecting'>;
 }
 
@@ -218,6 +220,9 @@ export class WSClient {
         break;
       case 'market_info':
         this.events.onMarketInfo?.(msg.payload);
+        break;
+      case 'sultan_leaderboard_update':
+        this.events.onSultanLeaderboardUpdate?.(msg.payload);
         break;
       case 'error':
         this.events.onError?.(msg.payload);
