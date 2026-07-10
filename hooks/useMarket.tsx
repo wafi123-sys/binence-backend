@@ -100,7 +100,7 @@ const defaultStats: PlayerStats = {
 
 const defaultOhlc: Record<Timeframe, OHLCBar[]> = {
   tick: [], '1s': [], '5s': [], '15s': [], '30s': [],
-  '1m': [], '5m': [], '15m': [], '30m': [], '1h': [], '1d': [],
+  '1m': [], '5m': [], '15m': [], '30m': [], '1h': [], '1d': [], '1w': [],
 };
 
 const MarketContext = createContext<MarketData | null>(null);
