@@ -146,24 +146,14 @@ export function MarketProvider({ children }: { children: ReactNode }) {
       const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
       
       if (isNative || isRemote) {
-        // Read from query param if provided
+        // Read from query param if provided (allows runtime override)
         const params = new URLSearchParams(window.location.search);
         const urlWs = params.get('ws');
         if (urlWs) {
-           localStorage.setItem('arena_ws_url', urlWs);
-        }
-
-        const savedUrl = localStorage.getItem('arena_ws_url');
-        if (savedUrl) {
-          if (savedUrl.startsWith('ws://') || savedUrl.startsWith('wss://')) {
-             wsUrl = savedUrl;
-          } else {
-             let clean = savedUrl.replace('http://', '').replace('https://', '').replace(/\/$/, '');
-             wsUrl = `wss://${clean}`;
-          }
+           wsUrl = urlWs.startsWith('ws') ? urlWs : `wss://${urlWs.replace(/^https?:\/\//, '')}`;
         } else {
-          // Default remote url if deployed without specifying
-          wsUrl = `wss://your-production-backend.up.railway.app`;
+          // Default: always use active Cloudflare Tunnel
+          wsUrl = 'wss://essentially-receive-place-ebony.trycloudflare.com';
         }
       }
     }
