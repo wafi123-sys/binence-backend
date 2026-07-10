@@ -102,8 +102,8 @@ export default function QuickOrderPanel({
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 5 : -5;
-    setLot((prev) => Math.max(1, prev + delta));
-  }, [setLot]);
+    setLot(Math.max(1, lot + delta));
+  }, [setLot, lot]);
 
   const estimatedValue = price * lot * 100;
   const canAffordBuy = stats.availableBalance >= estimatedValue;
