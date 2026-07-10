@@ -70,7 +70,7 @@ export class WSClient {
       const hostname = window.location.hostname;
       // If deployed on Vercel, fallback to the ngrok URL. Otherwise use the current IP/localhost.
       if (hostname.includes('vercel.app')) {
-        this.url = 'wss://shipping-barrier-locked-ratings.trycloudflare.com';
+        this.url = 'wss://essentially-receive-place-ebony.trycloudflare.com';
       } else {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         this.url = `${protocol}//${hostname}:3001`;
