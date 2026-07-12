@@ -1933,10 +1933,22 @@ function getAdaptiveBaseStep(price) {
   return bestStep;
 }
 
-function renderPriceLevelSummary() {
+let lastRenderSummary = 0;
+function renderPriceLevelSummary(force = false) {
+  const nowTime = Date.now();
+  if (!force && nowTime - lastRenderSummary < 2000) return; // Throttle to 2s to fix lag
+  lastRenderSummary = nowTime;
+
   const el = document.getElementById('priceLevelList');
   if (!el || priceLevelStats.size === 0) return;
   
+  // Prevent memory leak & lag by keeping only the 1500 most recently seen price levels
+  if (priceLevelStats.size > 1500) {
+    const sorted = Array.from(priceLevelStats.entries()).sort((a,b) => b[1].firstSeen - a[1].firstSeen);
+    const toDelete = sorted.slice(1000); 
+    for (const [p] of toDelete) priceLevelStats.delete(p);
+  }
+
   // 1. Zoom Aggregation (Adaptive based on price, keeps BTC at 5 base step)
   const baseStep = getAdaptiveBaseStep(prevPrice || 64000);
   const step = baseStep * activeZoomLevel;
@@ -3386,7 +3398,7 @@ document.querySelectorAll('.pls-lvl').forEach(btn => {
     document.querySelectorAll('.pls-lvl').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
     plsViewLevels = +e.target.dataset.lvl;
-    renderPriceLevelSummary();
+    renderPriceLevelSummary(true);
   });
 });
 
@@ -3396,7 +3408,7 @@ document.querySelectorAll('#zoomCtrl .ctrl-btn').forEach(btn => {
     document.querySelectorAll('#zoomCtrl .ctrl-btn').forEach(b => b.classList.remove('active'));
     e.target.classList.add('active');
     activeZoomLevel = +e.target.dataset.zoom;
-    renderPriceLevelSummary();
+    renderPriceLevelSummary(true);
   });
 });
 
@@ -3412,7 +3424,7 @@ document.querySelectorAll('.filter-toggle').forEach(btn => {
       e.target.style.background = 'var(--bg5)';
       e.target.style.borderColor = 'var(--border)';
     }
-    renderPriceLevelSummary();
+    renderPriceLevelSummary(true);
   });
 });
 
