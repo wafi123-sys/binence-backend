@@ -775,6 +775,8 @@
             <button class="ctrl-btn active" data-zoom="1">1x</button>
             <button class="ctrl-btn" data-zoom="10">10x</button>
             <button class="ctrl-btn" data-zoom="50">50x</button>
+            <button class="ctrl-btn" data-zoom="100">100x</button>
+            <button class="ctrl-btn" data-zoom="500">500x</button>
           </div>
           <div class="ctrl-group" style="display:inline-flex; transform:scale(0.85); transform-origin:right; border:none; background:var(--bg3);">
             <button class="ctrl-btn pls-lvl active" data-lvl="15">15</button>
@@ -2020,8 +2022,12 @@ function renderPriceLevelSummary() {
     
     const aiHtml = `<span class="badge-pill" style="background: ${aiColor}22; color: ${aiColor}; border: 1px solid ${aiColor}44;">${aiStatus}</span>${ageBadge}`;
     
-    h += `<div style="display:flex; padding:4px 10px; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='transparent'">
-      <div style="flex:1.2; padding-right:8px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold;">${fmtP(p)}</div>
+    const isCurrentPrice = latestTradeP >= p && latestTradeP < (p + step);
+    const rowBg = isCurrentPrice ? 'rgba(79, 110, 247, 0.2)' : 'transparent';
+    const currentIndicator = isCurrentPrice ? ' <span style="font-size:10px;">👈 CURRENT</span>' : '';
+    
+    h += `<div style="display:flex; padding:4px 10px; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
+      <div style="flex:1.2; padding-right:8px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold;">${fmtP(p)}${currentIndicator}</div>
       
       <div style="flex:1.5; position:relative; text-align:left; padding-left:4px;">
         <div style="position:absolute; top:0; left:4px; height:100%; width:${bPct}%; background:rgba(0,255,0,0.15);"></div>
