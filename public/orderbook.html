@@ -2415,31 +2415,53 @@ const marketMemory = new Map();
 const smStateCache = new Map();
 
 function saveSmState(sym) {
-  smStateCache.set(sym, {
-    timelineEvents: [...timelineEvents],
-    classifiedEvents: [...CLASSIFIED_EVENTS],
+  const stateObj = {
+    timelineEvents: [...timelineEvents].slice(-50),
+    classifiedEvents: [...CLASSIFIED_EVENTS].slice(-50),
     smBuy, smSell, smNeutral,
     currentPhase,
-    marketMemory: new Map(marketMemory),
-    absVolBuy, absVolSell, absStartP
-  });
+    marketMemory: Array.from(marketMemory.entries()),
+    absVolBuy, absVolSell, absStartP,
+    spotCVD, futuresCVD, spotVol, futuresVol, smartMoneyScore
+  };
+  smStateCache.set(sym, stateObj);
+  try {
+    localStorage.setItem('smState_' + sym, JSON.stringify(stateObj));
+  } catch (e) { console.error("LS save err", e); }
 }
 
 function loadSmState(sym) {
-  const saved = smStateCache.get(sym);
+  let saved = smStateCache.get(sym);
+  if (!saved) {
+    try {
+      const ls = localStorage.getItem('smState_' + sym);
+      if (ls) {
+        saved = JSON.parse(ls);
+        smStateCache.set(sym, saved);
+      }
+    } catch (e) { console.error("LS load err", e); }
+  }
+
   if (saved) {
-    timelineEvents = saved.timelineEvents;
+    timelineEvents = saved.timelineEvents || [];
     CLASSIFIED_EVENTS.length = 0;
-    CLASSIFIED_EVENTS.push(...saved.classifiedEvents);
-    smBuy = saved.smBuy;
-    smSell = saved.smSell;
-    smNeutral = saved.smNeutral;
-    currentPhase = saved.currentPhase;
+    CLASSIFIED_EVENTS.push(...(saved.classifiedEvents || []));
+    smBuy = saved.smBuy || 0;
+    smSell = saved.smSell || 0;
+    smNeutral = saved.smNeutral || 0;
+    currentPhase = saved.currentPhase || 'OBSERVING';
     marketMemory.clear();
-    for (const [k,v] of saved.marketMemory) marketMemory.set(k,v);
-    absVolBuy = saved.absVolBuy;
-    absVolSell = saved.absVolSell;
-    absStartP = saved.absStartP;
+    if (saved.marketMemory) {
+      for (const [k,v] of saved.marketMemory) marketMemory.set(k,v);
+    }
+    absVolBuy = saved.absVolBuy || 0;
+    absVolSell = saved.absVolSell || 0;
+    absStartP = saved.absStartP || 0;
+    spotCVD = saved.spotCVD || 0;
+    futuresCVD = saved.futuresCVD || 0;
+    spotVol = saved.spotVol || 0;
+    futuresVol = saved.futuresVol || 0;
+    smartMoneyScore = saved.smartMoneyScore || 0;
   } else {
     // Fresh state for new coin
     timelineEvents = [];
@@ -3298,7 +3320,12 @@ function renderAdvancedScoreUI() {
       aiNarrator.style.borderColor = 'var(--border)';
     }
   }
+  
+  if (currentSymbol) {
+    saveSmState(currentSymbol);
+  }
 }
+
 
 // ==============================================
 // LEVELS CONTROL EVENT LISTENERS
