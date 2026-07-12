@@ -88,6 +88,12 @@ export class WhaleTracker {
       const journeysToSave = Array.from(this.journeys.values()).slice(-200);
       
       const topVolumeNodes = Array.from(this.volumeProfile.values())
+        .filter((n: any) => {
+          const total = n.bVol + n.sVol;
+          if (total === 0) return false;
+          const imb = Math.abs(n.bVol - n.sVol) / total;
+          return imb >= 0.8; // Imbalance di atas 80% (Accumulation / Distribution ekstrem)
+        })
         .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
         .slice(0, 50);
 
