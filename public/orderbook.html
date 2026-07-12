@@ -665,10 +665,10 @@
         <div class="card-header" style="padding-bottom:5px; justify-content: flex-end; gap: 15px;">
           <div class="card-title" style="display:flex; gap:15px; font-size:13px; align-items:center;">
             <button class="view-tab active" data-view="depth">&#128200; Cumulative Depth</button>
-            <button class="view-tab" data-view="heatmap">&#128293; Liquidity Profile</button>
+            <button class="view-tab" data-view="heatmap">&#128200; Live Chart</button>
           </div>
           
-          <!-- LWC CONTROLS (Only visible in heatmap view) -->
+          <!-- LWC CONTROLS (Only visible in Live Chart view) -->
           <div id="heatmapControls" style="display:none; align-items:center; gap:15px; margin-left:auto;">
             <div class="ctrl-bar" style="padding:0; border:none; margin:0; background:transparent;">
               <span class="ctrl-label">Timeframe</span>
@@ -680,12 +680,6 @@
                 <button class="ctrl-btn" data-tf="4h">4h</button>
                 <button class="ctrl-btn" data-tf="1d">1d</button>
               </div>
-            </div>
-            
-            <div class="ctrl-bar" style="padding:0; border:none; margin:0; background:transparent;">
-              <span class="ctrl-label" title="Filter to show only the biggest whales">Whale Filter</span>
-              <input type="range" class="depth-range" id="heatmapFilter" min="0" max="100" value="0" step="1" style="width:100px;" />
-              <span class="depth-range-val" id="heatmapFilterVal" style="width:35px;text-align:right;">0%</span>
             </div>
           </div>
         </div>
@@ -707,11 +701,7 @@
         </div>
         <div class="depth-wrap" id="chartAreaWrap" style="position:relative; flex:1; overflow:hidden;">
           <canvas id="depthChart" style="display:block; width:100%; height:100%;"></canvas>
-          <canvas id="heatmapChart" style="display:none; position:absolute; top:0; left:0; pointer-events:none; z-index:1; width:100%; height:100%;"></canvas>
-          <canvas id="domChart" style="display:block; position:absolute; top:0; left:0; pointer-events:none; z-index:12; width:100%; height:100%;"></canvas>
-          <canvas id="domChart" style="display:block; position:absolute; top:0; left:0; pointer-events:none; z-index:12; width:100%; height:100%;"></canvas>
           <div id="lwcContainer" style="display:none; width:100%; height:100%; position:absolute; top:0; left:0; background:transparent; z-index:10;"></div>
-                    <div id="heatmapOverlay" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; overflow:hidden; pointer-events:none; z-index:11;"></div>
         </div>
       </div>
     </div>
@@ -1739,8 +1729,6 @@ function processOrderBook() {
     
   renderOB(); 
   renderBigOrders(); 
-  renderDepthChart();
-  renderLiquidityProfile();
 }
 
 // ==============================================
@@ -1876,7 +1864,7 @@ function connectFuturesWS(sym) {
       const price = +o.p;
       const side = o.S; // "SELL" (Long liquidation) or "BUY" (Short liquidation)
       const qty = +o.q;
-      spawnLiquidationBubble(price, side, qty);
+      // Liquidation visualization disabled
     }
   };
 }
@@ -2783,21 +2771,17 @@ document.querySelectorAll('.view-tab').forEach(btn => {
     currentView = e.target.dataset.view;
     if (currentView === 'depth') {
       document.getElementById('depthChart').style.display = 'block';
-      document.getElementById('heatmapChart').style.display = 'none';
-      document.getElementById('heatmapOverlay').style.display = 'none';
       document.getElementById('depthChartCtrlBar').style.display = 'flex';
       document.getElementById('heatmapControls').style.display = 'none';
+      document.getElementById('lwcContainer').style.display = 'none';
       renderDepthChart();
     } else {
       document.getElementById('depthChart').style.display = 'none';
       document.getElementById('lwcContainer').style.display = 'block';
-      document.getElementById('heatmapChart').style.display = 'block';
-      document.getElementById('heatmapOverlay').style.display = 'block';
       document.getElementById('depthChartCtrlBar').style.display = 'none';
       document.getElementById('heatmapControls').style.display = 'flex';
       initLwc();
       if (!lastCandle) fetchKlines();
-      renderLiquidityProfile();
     }
   });
 });
@@ -2816,43 +2800,6 @@ document.querySelectorAll('#tfCtrl .ctrl-btn').forEach(btn => {
   });
 });
 
-// Heatmap Filter Slider
-const hmFilterEl = document.getElementById('heatmapFilter');
-const hmFilterValEl = document.getElementById('heatmapFilterVal');
-hmFilterEl.addEventListener('input', (e) => {
-  currentHeatmapFilter = parseInt(e.target.value, 10);
-  hmFilterValEl.textContent = currentHeatmapFilter + '%';
-  renderLiquidityProfile();
-});
-
-// connectFuturesWS is defined above with unified streams
-
-function spawnLiquidationBubble(price, side, qty) {
-  if (currentView !== 'heatmap') return;
-  const overlay = document.getElementById('heatmapOverlay');
-  const h = overlay.clientHeight;
-  const mid = latestTradeP;
-  if (!mid) return;
-  
-  const range = (DEPTH_ZOOM/100)*0.05;
-  const maxP = mid * (1 + range);
-  const minP = mid * (1 - range);
-  
-  let y = h - ((price - minP) / (maxP - minP) * h);
-  if (y < 0) y = 0;
-  if (y > h) y = h;
-  
-  const div = document.createElement('div');
-  div.className = 'pulse-liq';
-  div.style.top = y + 'px';
-  div.style.left = '98%'; // close to the right edge
-  div.style.background = side === 'SELL' ? 'rgba(255, 50, 50, 0.8)' : 'rgba(50, 255, 50, 0.8)';
-  div.style.boxShadow = `0 0 15px ${div.style.background}`;
-  
-  overlay.appendChild(div);
-  setTimeout(() => div.remove(), 2000);
-}
-
 let lwcChart = null;
 let lwcSeries = null;
 let lastCandle = null;
@@ -2867,19 +2814,13 @@ function initLwc() {
       width: w,
       height: h,
       layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#8892a4' },
-      grid: { vertLines: { color: '#1e2a45' }, horzLines: { color: '#1e2a45' } },
-      rightPriceScale: { borderColor: '#1e2a45' },
-      timeScale: { borderColor: '#1e2a45', timeVisible: true }
+      grid: { vertLines: { color: 'rgba(255,255,255,0.05)' }, horzLines: { color: 'rgba(255,255,255,0.05)' } },
+      rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+      timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true }
     });
     lwcSeries = lwcChart.addCandlestickSeries({
       upColor: '#00d4a8', downColor: '#ff4d6d', borderVisible: false, wickUpColor: '#00d4a8', wickDownColor: '#ff4d6d'
     });
-    
-    // Resize overlay canvas to match container
-    const c = document.getElementById('heatmapChart');
-    c.width = w;
-    c.height = h;
-    console.log('LWC Initialized', w, h);
   } catch (e) {
     console.error('Failed to init LWC', e);
   }
@@ -2898,337 +2839,41 @@ async function fetchKlines() {
       const now = Math.floor(Date.now() / 1000);
       lastCandle = { time: now, open: latestTradeP, high: latestTradeP, low: latestTradeP, close: latestTradeP };
       lwcSeries.setData([lastCandle]);
-      console.log('Fallback dummy candle created! API was blocked.');
-    } else {
-      console.error('Cannot create fallback: latestTradeP is 0');
     }
   };
   
   try {
     const url = getRestProxy(`/api/v3/klines?symbol=${currentSymbol.toUpperCase()}&interval=${currentKlinesInterval}&limit=100`);
-    console.log('Fetching klines:', url);
-    
-    // Add timeout to fetch to not hang forever
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 15000);
     
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeoutId);
     
-    if(!res.ok) {
-      console.error('Klines fetch failed HTTP', res.status);
-      applyFallback();
-      return;
-    }
+    if(!res.ok) { applyFallback(); return; }
     const data = await res.json();
-    console.log('Klines API returned arrays:', data.length);
     const cdata = data.map(d => ({
-      time: Math.floor(d[0] / 1000), // ensure strictly integer
+      time: Math.floor(d[0] / 1000),
       open: +d[1],
       high: +d[2],
       low: +d[3],
       close: +d[4]
     }));
-    // Remove duplicates if any (binance shouldn't have them but just in case)
     const uniqueData = [];
     const seen = new Set();
     for(const d of cdata) {
       if(!seen.has(d.time)) { seen.add(d.time); uniqueData.push(d); }
     }
-    console.log('Setting data to lwcSeries, count:', uniqueData.length);
     lwcSeries.setData(uniqueData);
     lastCandle = uniqueData[uniqueData.length - 1];
-    console.log('Klines successfully loaded!', uniqueData.length);
   } catch (e) { 
-    console.error('Failed to fetch klines (Exception):', e.message || e);
     applyFallback();
   }
 }
 
-  // ==============================================
-  // SMART LIQUIDITY ENGINE & HISTORICAL HEATMAP
-  // ==============================================
-  const HM_MAX_HISTORY_MS = 30 * 60 * 1000;
-  const HM_SNAPSHOT_INTERVAL = 1500;
-  let heatmapHistory = [];
-  let heatmapBubbles = [];
-  let lastHmSnapshot = 0;
-  let hmTooltipData = null;
-  
-  function getHeatmapColor(ratio) {
-    if (ratio <= 0.01) return '#0b0f14';
-    const stops = [
-      { r: 11,  g: 15,  b: 20,  v: 0.00 },
-      { r: 0,   g: 0,   b: 139, v: 0.10 },
-      { r: 0,   g: 120, b: 255, v: 0.25 },
-      { r: 0,   g: 255, b: 0,   v: 0.40 },
-      { r: 255, g: 255, b: 0,   v: 0.60 },
-      { r: 255, g: 165, b: 0,   v: 0.80 },
-      { r: 255, g: 0,   b: 0,   v: 0.95 },
-      { r: 255, g: 255, b: 255, v: 1.00 }
-    ];
-    let c1 = stops[0], c2 = stops[1];
-    for (let i = 1; i < stops.length; i++) {
-      if (ratio <= stops[i].v) { c1 = stops[i-1]; c2 = stops[i]; break; }
-    }
-    if (ratio >= 1.0) c1 = c2 = stops[stops.length - 1];
-    const range = c2.v - c1.v;
-    const p = range === 0 ? 0 : (ratio - c1.v) / range;
-    const R = Math.floor(c1.r + (c2.r - c1.r) * p);
-    const G = Math.floor(c1.g + (c2.g - c1.g) * p);
-    const B = Math.floor(c1.b + (c2.b - c1.b) * p);
-    return `rgba(${R}, ${G}, ${B}, 1.0)`;
-  }
-  
-  function captureHeatmapData() {
-    const now = Date.now();
-    if (now - lastHmSnapshot < HM_SNAPSHOT_INTERVAL) return;
-    lastHmSnapshot = now;
-    const askSnaps = orderBook.asks.slice(0, 80).map(a => ({ p: a.price, q: a.qty }));
-    const bidSnaps = orderBook.bids.slice(0, 80).map(b => ({ p: b.price, q: b.qty }));
-    const cutoff = now - HM_MAX_HISTORY_MS;
-    while(heatmapHistory.length > 0 && heatmapHistory[0].time * 1000 < cutoff) heatmapHistory.shift();
-    while(heatmapBubbles.length > 0 && heatmapBubbles[0].time < cutoff) heatmapBubbles.shift();
-    heatmapHistory.push({ time: Math.floor(now / 1000), asks: askSnaps, bids: bidSnaps });
-  }
-
-  function renderLiquidityProfile() {
-    if (currentView !== 'heatmap' || !lwcChart || !lwcSeries) return;
-    captureHeatmapData();
-    try {
-      const canvas = document.getElementById('heatmapChart');
-      const ctx = canvas.getContext('2d');
-      const container = document.getElementById('lwcContainer');
-      if (canvas.width !== container.offsetWidth || canvas.height !== container.offsetHeight) {
-        canvas.width = container.offsetWidth; canvas.height = container.offsetHeight;
-        lwcChart.resize(canvas.width, canvas.height);
-      }
-      ctx.fillStyle='#0b0f14'; ctx.fillRect(0,0,canvas.width,canvas.height);
-      if (!lastCandle || heatmapHistory.length === 0) {
-        ctx.fillStyle = '#8892a4'; ctx.fillText('Building Smart Engine History...', 10, 20); return;
-      }
-      const timeScale = lwcChart.timeScale();
-      const logicalRange = timeScale.getVisibleLogicalRange();
-      if (!logicalRange) return;
-      
-      let maxVol = 1;
-      const visibleHistory = heatmapHistory.slice(-150);
-      for (const snap of visibleHistory) {
-        for (const a of snap.asks) if (a.q > maxVol) maxVol = a.q;
-        for (const b of snap.bids) if (b.q > maxVol) maxVol = b.q;
-      }
-      const filterThreshold = maxVol * (currentHeatmapFilter / 100);
-      const chartAreaWidth = canvas.width - 60;
-      
-      const barSpacing = timeScale.width() / (logicalRange.to - logicalRange.from);
-      let intervalSec = 900;
-      if (currentKlinesInterval === '1m') intervalSec = 60;
-      else if (currentKlinesInterval === '5m') intervalSec = 300;
-      else if (currentKlinesInterval === '15m') intervalSec = 900;
-      else if (currentKlinesInterval === '1h') intervalSec = 3600;
-      else if (currentKlinesInterval === '4h') intervalSec = 14400;
-      else if (currentKlinesInterval === '1d') intervalSec = 86400;
-      
-      const pxPerSecDyn = barSpacing / intervalSec;
-      const lastCandleX = timeScale.timeToCoordinate(lastCandle.time);
-      if (lastCandleX === null) return;
-      
-      ctx.globalCompositeOperation = 'lighter';
-      for (const snap of heatmapHistory) {
-        const diffSec = snap.time - lastCandle.time;
-        const x = lastCandleX + (diffSec * pxPerSecDyn);
-        if (x < -10 || x > chartAreaWidth + 10) continue;
-        const blockW = Math.max(1.5, (HM_SNAPSHOT_INTERVAL / 1000) * pxPerSecDyn);
-        
-        ctx.fillStyle = getHeatmapColor(1.0); // Dummy, we will set real per-bar
-        for (const a of snap.asks) {
-          if (a.q < filterThreshold) continue;
-          const y = lwcSeries.priceToCoordinate(a.p);
-          if (y !== null) { ctx.fillStyle = getHeatmapColor(a.q / maxVol); ctx.fillRect(Math.floor(x), Math.floor(y)-1, Math.ceil(blockW)+1, 3); }
-        }
-        for (const b of snap.bids) {
-          if (b.q < filterThreshold) continue;
-          const y = lwcSeries.priceToCoordinate(b.p);
-          if (y !== null) { ctx.fillStyle = getHeatmapColor(b.q / maxVol); ctx.fillRect(Math.floor(x), Math.floor(y)-1, Math.ceil(blockW)+1, 3); }
-        }
-      }
-      ctx.globalCompositeOperation = 'source-over';
-      
-      for (const b of heatmapBubbles) {
-        const diffSec = (b.time / 1000) - lastCandle.time;
-        const x = lastCandleX + (diffSec * pxPerSecDyn);
-        if (x < -20 || x > chartAreaWidth + 20) continue;
-        const y = lwcSeries.priceToCoordinate(b.p);
-        if (y !== null) {
-          const r = Math.min(15, Math.max(3, Math.pow(b.q / maxVol, 0.5) * 20));
-          ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI);
-          ctx.fillStyle = b.isBuy ? 'rgba(0,255,0,0.5)' : 'rgba(255,0,0,0.5)'; ctx.fill();
-          ctx.strokeStyle = b.isBuy ? '#00ff00' : '#ff0000'; ctx.stroke();
-        }
-      }
-      
-      if (hmTooltipData && hmTooltipData.x < chartAreaWidth) {
-        const diffSec = (hmTooltipData.x - lastCandleX) / pxPerSecDyn;
-        const targetTime = lastCandle.time + diffSec;
-        let bestSnap = null, minDiff = Infinity;
-        for (const snap of heatmapHistory) {
-          const diff = Math.abs(snap.time - targetTime);
-          if (diff < minDiff) { minDiff = diff; bestSnap = snap; }
-        }
-        if (bestSnap && minDiff < (intervalSec * 2)) {
-          const targetPrice = lwcSeries.coordinateToPrice(hmTooltipData.y);
-          if (targetPrice) {
-            let totalQ = 0, type = '';
-            for (const a of bestSnap.asks) { if (Math.abs(a.p - targetPrice) / targetPrice < 0.003) { totalQ += a.q; type = 'Ask Wall'; } }
-            for (const b of bestSnap.bids) { if (Math.abs(b.p - targetPrice) / targetPrice < 0.003) { totalQ += b.q; type = 'Bid Wall'; } }
-            if (totalQ > 0) {
-              const tx = hmTooltipData.x > chartAreaWidth - 160 ? hmTooltipData.x - 170 : hmTooltipData.x + 15;
-              ctx.fillStyle = 'rgba(10,15,20,0.95)'; ctx.strokeStyle = '#2b3345';
-              ctx.fillRect(tx, hmTooltipData.y - 45, 160, 65); ctx.strokeRect(tx, hmTooltipData.y - 45, 160, 65);
-              ctx.fillStyle = '#fff'; ctx.font = '11px Inter';
-              ctx.fillText(`Type: ${type}`, tx + 10, hmTooltipData.y - 25);
-              ctx.fillText(`Price: ${targetPrice.toFixed(5)}`, tx + 10, hmTooltipData.y - 10);
-              ctx.fillText(`Volume: ${totalQ.toFixed(2)}`, tx + 10, hmTooltipData.y + 5);
-            }
-          }
-        }
-      }
-    } catch (e) { console.error('Liquidity Profile error:', e); }
-    
-    // --- SMART LIQUIDITY DOM BAR ---
-    try {
-      const domCanvas = document.getElementById('domChart');
-      if (domCanvas) {
-        domCanvas.width = canvas.width;
-        domCanvas.height = canvas.height;
-        const domCtx = domCanvas.getContext('2d');
-        domCtx.clearRect(0, 0, domCanvas.width, domCanvas.height);
-        if (lwcSeries && orderBook.asks.length > 0) {
-          const maxDomVol = Math.max(
-            ...orderBook.asks.map(a => a.qty),
-            ...orderBook.bids.map(b => b.qty)
-          );
-          
-          const drawDom = (list, isAsk) => {
-            for (let i = 0; i < list.length; i++) {
-              const item = list[i];
-              const y = lwcSeries.priceToCoordinate(+item.price);
-              if (y === null || y < 0 || y > domCanvas.height) continue;
-              
-              const ratio = item.qty / maxDomVol;
-              const barWidth = Math.max(2, ratio * 200); // Max 200px wide
-              const x = domCanvas.width - barWidth;
-              
-              // Smart Color Logic
-              let color = '#555'; // Grey (New)
-              let label = '';
-              const wallInfo = activeWalls.get(item.price);
-              if (wallInfo) {
-                 const ageMs = Date.now() - wallInfo.firstSeen;
-                 if (ratio > 0.8) {
-                    color = '#ffaa00'; // Yellow Whale
-                    label = 'Whale';
-                 } else if (ageMs > 30000) {
-                    color = '#0088ff'; // Blue Resting
-                 } else {
-                    color = '#00ff00'; // Green Strong
-                 }
-              }
-              
-              domCtx.fillStyle = color;
-              domCtx.globalAlpha = 0.8;
-              domCtx.fillRect(x, Math.floor(y)-4, barWidth, 9);
-              domCtx.globalAlpha = 1.0;
-              
-              // Text
-              if (ratio > 0.1) {
-                domCtx.fillStyle = '#fff';
-                domCtx.font = '10px "JetBrains Mono"';
-                domCtx.textAlign = 'right';
-                domCtx.textBaseline = 'middle';
-                const volStr = item.qty >= 1e6 ? (item.qty/1e6).toFixed(1)+'M' : item.qty >= 1e3 ? (item.qty/1e3).toFixed(1)+'K' : item.qty.toFixed(0);
-                domCtx.fillText(volStr + (label ? ' ' + label : ''), x - 5, Math.floor(y));
-              }
-            }
-          };
-          
-          drawDom(orderBook.asks, true);
-          drawDom(orderBook.bids, false);
-        }
-      }
-    } catch (e) {
-      console.error('DOM Render Error:', e);
-    }
-    
-    
-    // --- SMART LIQUIDITY DOM BAR ---
-    try {
-      const domCanvas = document.getElementById('domChart');
-      if (domCanvas) {
-        domCanvas.width = canvas.width;
-        domCanvas.height = canvas.height;
-        const domCtx = domCanvas.getContext('2d');
-        domCtx.clearRect(0, 0, domCanvas.width, domCanvas.height);
-        
-        if (lwcSeries && orderBook.asks.length > 0) {
-          const maxDomVol = Math.max(
-            ...orderBook.asks.map(a => a.qty),
-            ...orderBook.bids.map(b => b.qty)
-          );
-          
-          const drawDom = (list, isAsk) => {
-            for (let i = 0; i < list.length; i++) {
-              const item = list[i];
-              const y = lwcSeries.priceToCoordinate(+item.price);
-              if (y === null || y < 0 || y > domCanvas.height) continue;
-              
-              const ratio = item.qty / maxDomVol;
-              const barWidth = Math.max(2, ratio * 200); // Max 200px wide
-              const x = domCanvas.width - barWidth;
-              
-              // Smart Color Logic
-              let color = '#555555'; // Grey (New)
-              let label = '';
-              const wallInfo = activeWalls.get(item.price);
-              if (wallInfo) {
-                 const ageMs = Date.now() - wallInfo.firstSeen;
-                 if (ratio > 0.8) {
-                    color = '#ffaa00'; // Yellow Whale
-                    label = 'Whale ' + Math.floor(ratio*100) + '%';
-                 } else if (ageMs > 30000) {
-                    color = '#0088ff'; // Blue Resting
-                    label = 'Resting';
-                 } else {
-                    color = '#00ff00'; // Green Strong
-                 }
-              }
-              
-              domCtx.fillStyle = color;
-              domCtx.globalAlpha = 0.8;
-              domCtx.fillRect(x, Math.floor(y)-4, barWidth, 9);
-              domCtx.globalAlpha = 1.0;
-              
-              // Text
-              if (ratio > 0.1) {
-                domCtx.fillStyle = '#fff';
-                domCtx.font = '10px "JetBrains Mono"';
-                domCtx.textAlign = 'right';
-                domCtx.textBaseline = 'middle';
-                const volStr = item.qty >= 1e6 ? (item.qty/1e6).toFixed(1)+'M' : item.qty >= 1e3 ? (item.qty/1e3).toFixed(1)+'K' : item.qty.toFixed(0);
-                domCtx.fillText(volStr + (label ? ' ' + label : ''), x - 5, Math.floor(y));
-              }
-            }
-          };
-          
-          drawDom(orderBook.asks, true);
-          drawDom(orderBook.bids, false);
-        }
-      }
-    } catch (e) {
-      console.error('DOM Render Error:', e);
-    }
-    
-  }
+function renderLiquidityProfile() {
+  return;
+}
   
   // Attach tooltip events
   setTimeout(() => {
