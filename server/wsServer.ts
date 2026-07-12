@@ -100,17 +100,22 @@ export class ArenaWSServer {
   private leaderboardInterval: ReturnType<typeof setInterval> | null = null;
   private onlineUsers: Set<string> = new Set();
 
-  constructor(wsPort: number = 3001) {
+  constructor(serverOrPort: number | import('http').Server = 3001) {
     this.engine = new Engine(300);
-    this.wss = new WebSocketServer({ port: wsPort });
+    
+    if (typeof serverOrPort === 'number') {
+      this.wss = new WebSocketServer({ port: serverOrPort });
+      console.log(`[Arena WS] WebSocket server started on port ${serverOrPort}`);
+    } else {
+      this.wss = new WebSocketServer({ server: serverOrPort });
+      console.log(`[Arena WS] WebSocket server attached to HTTP server`);
+    }
 
     this.setupEngineEvents();
     this.setupWebSocket();
     this.startHeartbeat();
     this.startLeaderboardBroadcast();
     this.engine.start();
-
-    console.log(`[Arena WS] WebSocket server started on port ${wsPort}`);
   }
 
   getPlayerCount(): number {
@@ -223,7 +228,52 @@ export class ArenaWSServer {
   // ── WebSocket Connection Setup ────────────────────────────
 
   private setupWebSocket(): void {
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocket, req: any) => {
+      const url = req.url || '';
+      
+      // BINANCE PROXY LOGIC (Bypasses ISP DPI Block in Browser)
+      if (url.startsWith('/binance-proxy')) {
+        let targetUrl = '';
+        if (url.startsWith('/binance-proxy/fstream/')) {
+          const binancePath = url.replace('/binance-proxy/fstream', '');
+          targetUrl = `wss://stream.binancefuture.com${binancePath}`;
+        } else {
+          const binancePath = url.replace('/binance-proxy', '');
+          targetUrl = `wss://data-stream.binance.vision${binancePath}`;
+        }
+        
+        try {
+          // Note: using the same 'ws' class already imported at top of file
+          const { WebSocket: ClientWS } = require('ws');
+          const binanceWs = new ClientWS(targetUrl);
+          
+          binanceWs.on('message', (data: any) => {
+            if (ws.readyState === ws.OPEN) ws.send(data.toString());
+          });
+          
+          binanceWs.on('close', () => {
+            if (ws.readyState === ws.OPEN) ws.close();
+          });
+          
+          binanceWs.on('error', (e: any) => {
+            console.error('Binance proxy error:', e.message);
+            if (ws.readyState === ws.OPEN) ws.close();
+          });
+          
+          ws.on('message', (data: any) => {
+            if (binanceWs.readyState === binanceWs.OPEN) binanceWs.send(data);
+          });
+          
+          ws.on('close', () => {
+            if (binanceWs.readyState === binanceWs.OPEN) binanceWs.close();
+          });
+          
+        } catch (e) {
+          ws.close();
+        }
+        return; // Skip standard game engine auth logic
+      }
+
       const connId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       let currentId = connId;
 

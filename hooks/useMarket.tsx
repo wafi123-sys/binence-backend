@@ -168,11 +168,18 @@ export function MarketProvider({ children }: { children: ReactNode }) {
     const urlWs = params.get('ws');
     if (urlWs) return urlWs.startsWith('ws') ? urlWs : `wss://${urlWs.replace(/^https?:\/\//, '')}`;
     const isNative = (window as any).Capacitor?.isNative;
-    const isRemote = window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
-    if (isNative || isRemote) {
+    if (isNative) {
       return 'wss://essentially-receive-place-ebony.trycloudflare.com';
     }
-    return 'ws://localhost:3001';
+    
+    // For Vercel deployments, use the cloudflare tunnel
+    if (window.location.hostname.includes('vercel.app')) {
+      return 'wss://essentially-receive-place-ebony.trycloudflare.com';
+    }
+    
+    // Default to the same hostname, but on port 3001 (works for localhost and local network IPs)
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${window.location.hostname}:3001`;
   });
 
   const updateWsUrl = useCallback((url: string) => {
