@@ -1895,7 +1895,7 @@ function renderPriceLevelSummary() {
   if (!el || priceLevelStats.size === 0) return;
   
   // 1. Zoom Aggregation
-  const step = currentTickSizes.tick * activeZoomLevel;
+  const step = currentTickSizes[9] * activeZoomLevel;
   const bucketedStats = new Map();
   
   for (const [price, st] of priceLevelStats.entries()) {
@@ -1923,7 +1923,7 @@ function renderPriceLevelSummary() {
      if (activeFilters.age1m && (now - st.firstSeen) < 60000) return false;
      
      const delta = Math.abs(st.bVol - st.sVol);
-     if (activeFilters.highDelta && delta < (currentTickSizes.size * 10)) return false; 
+     if (activeFilters.highDelta && delta < (FLOW_BUCKET * 10)) return false; 
      if (activeFilters.buyWall && st.bVol < st.sVol * 1.5) return false;
      if (activeFilters.sellWall && st.sVol < st.bVol * 1.5) return false;
      return true;
@@ -2047,7 +2047,7 @@ function renderPriceLevelSummary() {
   
   let whaleAct = 'LOW';
   let whaleHits = 0;
-  for (let p of displayPrices) if (priceLevelStats.get(p).whale) whaleHits++;
+  for (let p of displayPrices) if (bucketedStats.get(p).whale) whaleHits++;
   if (whaleHits >= 3) whaleAct = 'HIGH';
   else if (whaleHits > 0) whaleAct = 'MEDIUM';
   
