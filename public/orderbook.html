@@ -3455,24 +3455,35 @@ window.addEventListener('resize', () => { renderDepthChart(); renderLiquidityPro
 // GLOBAL SMART MONEY INDEX (RISK TRADE)
 const top10Coins = ['btcusdt', 'ethusdt', 'bnbusdt', 'solusdt', 'xrpusdt', 'dogeusdt', 'adausdt', 'trxusdt', 'avaxusdt', 'linkusdt'];
 const globalStreams = top10Coins.map(c => `${c}@aggTrade`).join('/');
-const globalWsUrl = `wss://fstream.binance.com/stream?streams=${globalStreams}`;
+const globalWsUrl = `wss://stream.binance.com:9443/stream?streams=${globalStreams}`;
 
 let globalBVol = 0;
 let globalSVol = 0;
 
+let wsStatus = 'INIT';
 function connectGlobalIndex() {
+  wsStatus = 'CONNECTING';
   const globalWs = new WebSocket(globalWsUrl);
+  globalWs.onopen = () => { wsStatus = 'OPEN'; };
+  globalWs.onerror = () => { wsStatus = 'ERROR'; };
   globalWs.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    if (data.data) {
-      const trade = data.data;
-      const isBuy = !trade.m;
-      const notional = parseFloat(trade.p) * parseFloat(trade.q);
-      if (isBuy) globalBVol += notional;
-      else globalSVol += notional;
+    try {
+      wsStatus = 'DATA_RECV';
+      const data = JSON.parse(e.data);
+      if (data.data && data.data.p) {
+        wsStatus = 'DATA_PARSED';
+        const trade = data.data;
+        const isBuy = !trade.m;
+        const notional = parseFloat(trade.p) * parseFloat(trade.q);
+        if (isBuy) globalBVol += notional;
+        else globalSVol += notional;
+      }
+    } catch(err) {
+      wsStatus = 'PARSE_ERR';
     }
   };
   globalWs.onclose = () => {
+    wsStatus = 'CLOSED';
     setTimeout(connectGlobalIndex, 5000);
   };
 }
@@ -3484,19 +3495,19 @@ setInterval(() => {
   const el = document.getElementById('sGlobalSm');
   if (el) {
     if (total === 0) {
-      el.textContent = 'CALCULATING...';
+      el.textContent = `WAIT (${wsStatus})`;
       return;
     }
     const score = (globalBVol / total) * 100;
     
     if (score >= 60) {
-      el.textContent = 'ON 🟢';
+      el.textContent = 'ON';
       el.style.color = 'var(--green)';
     } else if (score <= 40) {
-      el.textContent = 'OFF 🔴';
+      el.textContent = 'OFF';
       el.style.color = 'var(--red)';
     } else {
-      el.textContent = 'NETRAL ⚪';
+      el.textContent = 'NETRAL';
       el.style.color = 'var(--txt2)';
     }
   }
