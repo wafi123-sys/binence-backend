@@ -494,13 +494,22 @@
         overflow-y: auto !important;
       }
       .app-body { overflow-y: auto; }
-      .chart-wrapper { min-height: 400px; max-height: 50vh; }
-      .orderbook-wrapper { min-height: 500px; border-left: none; border-top: 1px solid var(--border); }
-      .whale-wrapper { min-height: 600px; border-left: none; border-top: 1px solid var(--border); }
-      header { flex-wrap: wrap; height: auto; padding: 10px; }
-      #tickerPill { margin-bottom: 10px; width: 100%; justify-content: center; }
-      .top-stats { flex-wrap: wrap; gap: 10px; justify-content: center; }
+      .main-left { min-height: 450px; border-right: none !important; border-bottom: 1px solid var(--border); width: 100%; }
+      .main-col2 { min-height: 600px; border-left: none !important; border-bottom: 1px solid var(--border); width: 100%; }
+      .main-col4 { min-height: 650px; border-left: none !important; width: 100%; overflow-x: auto; }
+      
+      .header-inner { flex-wrap: wrap; justify-content: space-between; }
+      .search-wrap { width: 100%; max-width: 100%; order: 3; margin-top: 10px; }
+      #marketOverview { order: 4; width: 100%; justify-content: center; margin-top: 10px; margin-left: 0 !important; }
+      #activePill { order: 2; }
+      
+      .stats-strip { padding-bottom: 4px; }
       #whaleFilterSidebar { width: 100%; right: -100%; }
+      
+      /* Make Order Book table font smaller for mobile */
+      #asksList > div, #bidsList > div { font-size: 10px !important; }
+      .main-col4 .list-header { min-width: 500px; }
+      .main-col4 > div:last-child { min-width: 500px; } /* Ensures the rows scroll horizontally */
     }
   </style>
 </head>
