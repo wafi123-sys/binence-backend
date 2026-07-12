@@ -486,6 +486,22 @@
       display: inline-block; letter-spacing: 0.5px;
     }
     
+    /* ====== MOBILE RESPONSIVE (HP) ====== */
+    @media (max-width: 992px) {
+      .main-area {
+        display: flex !important;
+        flex-direction: column !important;
+        overflow-y: auto !important;
+      }
+      .app-body { overflow-y: auto; }
+      .chart-wrapper { min-height: 400px; max-height: 50vh; }
+      .orderbook-wrapper { min-height: 500px; border-left: none; border-top: 1px solid var(--border); }
+      .whale-wrapper { min-height: 600px; border-left: none; border-top: 1px solid var(--border); }
+      header { flex-wrap: wrap; height: auto; padding: 10px; }
+      #tickerPill { margin-bottom: 10px; width: 100%; justify-content: center; }
+      .top-stats { flex-wrap: wrap; gap: 10px; justify-content: center; }
+      #whaleFilterSidebar { width: 100%; right: -100%; }
+    }
   </style>
 </head>
 <body>
