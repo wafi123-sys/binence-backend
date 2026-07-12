@@ -155,10 +155,10 @@ export class WhaleTracker {
       const val = price * qty;
       const isMaker = msg.m; // true if maker
       
-      // Volume Profile Tracking (500x Zoom)
+      // Volume Profile Tracking (200x Zoom - Rentang $1000)
       const mag = Math.pow(10, Math.floor(Math.log10(price)));
-      const step500 = mag * 0.0005 * 500; 
-      const bucketPrice = Math.floor(price / step500) * step500;
+      const step200 = mag * 0.0005 * 200; 
+      const bucketPrice = Math.floor(price / step200) * step200;
 
       let bkt = this.volumeProfile.get(bucketPrice);
       if (!bkt) {
