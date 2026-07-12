@@ -1366,10 +1366,19 @@ function attachRowClicks(container) {
 // ==============================================
 function updatePill(coin) {
   const up = coin.change >= 0;
-  document.getElementById('pillName').textContent = coin.display;
+  document.getElementById('pillName').textContent = coin.display || coin.symbol;
   const pEl = document.getElementById('pillPrice');
   pEl.textContent = fmtP(coin.price);
   pEl.className = 'active-symbol-price ' + (up ? 'up' : 'down');
+  
+  if (coin.high) document.getElementById('s24h').textContent = fmtP(coin.high);
+  if (coin.low) document.getElementById('s24l').textContent = fmtP(coin.low);
+  if (coin.vol) {
+    const v = coin.vol;
+    let vStr = v >= 1000000 ? (v/1000000).toFixed(2) + 'M' : (v >= 1000 ? (v/1000).toFixed(2) + 'K' : v.toFixed(2));
+    document.getElementById('s24v').textContent = vStr;
+  }
+  
   const cEl = document.getElementById('pillChg');
   cEl.textContent = (up?'+':'')+coin.change.toFixed(2)+'%';
   cEl.className = 'active-symbol-chg ' + (up ? 'up' : 'down');
@@ -2117,6 +2126,16 @@ function renderOB() {
   document.getElementById('sSpread').textContent = fmtP(sp);
   document.getElementById('sBid').textContent = fmtP(bb);
   document.getElementById('sAsk').textContent = fmtP(ba);
+  
+  let totB = 0, totA = 0;
+  for (const b of bids) totB += b.qty;
+  for (const a of asks) totA += a.qty;
+  const ratio = totB / (totA || 1);
+  const rEl = document.getElementById('sRatio');
+  if (rEl) {
+    rEl.textContent = ratio.toFixed(2);
+    rEl.style.color = ratio > 1 ? 'var(--green)' : 'var(--red)';
+  }
   
   renderPriceLevelSummary();
 }
