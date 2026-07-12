@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Binance Live Order Book</title>
+  <title>Agnoia Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="/lightweight-charts.js"></script>
@@ -69,16 +69,16 @@
     .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     .logo-icon {
       width: 32px; height: 32px;
-      background: linear-gradient(135deg, #f5a623, #f7c948);
+      background: var(--bg3);
+      border: 1px solid var(--border);
       border-radius: 8px; display: flex; align-items: center; justify-content: center;
-      font-size: 16px; box-shadow: 0 4px 12px rgba(245,166,35,0.3);
+      color: var(--txt);
+      font-size: 16px; box-shadow: 0 4px 12px rgba(255,255,255,0.05);
     }
     .logo-text {
       font-size: 16px; font-weight: 800;
-      background: linear-gradient(135deg, #f5a623, #f7e048);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      color: var(--txt); letter-spacing: 1px;
     }
-    .logo-sub { font-size: 10px; color: var(--txt3); }
 
     /* Search */
     .search-wrap {
@@ -511,10 +511,14 @@
   <div class="header-inner">
     <button id="toggleSidebar" style="background:none; border:none; color:var(--txt); font-size:18px; cursor:pointer; padding:0 10px;">&#9776;</button>
     <div class="logo">
-      <div class="logo-icon">&#8383;</div>
+      <div class="logo-icon">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 22L12 2l8 20" />
+          <path d="M7 14h10" />
+        </svg>
+      </div>
       <div>
-        <div class="logo-text">OrderBook Live</div>
-        <div class="logo-sub">Binance Real-time &bull; Free</div>
+        <div class="logo-text">AGNOIA TERMINAL</div>
       </div>
     </div>
 
