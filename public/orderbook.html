@@ -2024,7 +2024,7 @@ function renderPriceLevelSummary() {
     
     const isCurrentPrice = latestTradeP >= p && latestTradeP < (p + step);
     const rowBg = isCurrentPrice ? 'rgba(79, 110, 247, 0.2)' : 'transparent';
-    const currentIndicator = isCurrentPrice ? ' <span style="font-size:10px;">👈 CURRENT</span>' : '';
+    const currentIndicator = '';
     
     h += `<div style="display:grid; grid-template-columns: 18% 13% 6% 13% 6% 10% 12% 5% 17%; padding:4px 0; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center; text-align:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
       <div style="border-right: 1px solid rgba(255,255,255,0.05); text-align:left; padding-left:10px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold; white-space:nowrap;">${fmtP(p)}${currentIndicator}</div>
