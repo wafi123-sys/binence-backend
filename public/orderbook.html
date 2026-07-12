@@ -3348,6 +3348,20 @@ async function loadWhaleHistory() {
         whaleJourneys.set(j.id, j);
       }
     }
+    if (data.topVolumeNodes && data.topVolumeNodes.length > 0) {
+      for (const node of data.topVolumeNodes) {
+        // Map the backend structure to local priceLevelStats format
+        priceLevelStats.set(node.price, {
+          bVol: node.bVol,
+          sVol: node.sVol,
+          bFreq: node.bFreq,
+          sFreq: node.sFreq,
+          whale: false,
+          firstSeen: node.firstSeen || Date.now()
+        });
+      }
+      renderPriceLevelSummary();
+    }
     renderBigOrders();
   } catch(e) {
     console.warn("Could not load history from backend:", e);

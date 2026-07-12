@@ -40,6 +40,7 @@ export class WhaleTracker {
   private ws: WebSocket | null = null;
   private journeys = new Map<string, WhaleJourney>();
   private events: WhaleEvent[] = [];
+  private volumeProfile = new Map<number, any>();
   
   // Storage paths
   private dbPath = path.join(__dirname, '..', 'data');
@@ -69,7 +70,12 @@ export class WhaleTracker {
           this.journeys.set(j.id, j);
         }
       }
-      console.log(`[Whale Engine] Loaded ${this.events.length} events and ${this.journeys.size} journeys from DB.`);
+      if (data.volumeProfile) {
+        for (const b of data.volumeProfile) {
+          this.volumeProfile.set(b.price, b);
+        }
+      }
+      console.log(`[Whale Engine] Loaded ${this.events.length} events, ${this.journeys.size} journeys, and ${this.volumeProfile.size} volume nodes from DB.`);
     } catch (e) {
       console.log('[Whale Engine] Could not load history, starting fresh.');
     }
@@ -81,9 +87,19 @@ export class WhaleTracker {
       const eventsToSave = this.events.slice(0, 1000);
       const journeysToSave = Array.from(this.journeys.values()).slice(-200);
       
+      const topVolumeNodes = Array.from(this.volumeProfile.values())
+        .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
+        .slice(0, 50);
+
+      this.volumeProfile.clear();
+      for (const node of topVolumeNodes) {
+        this.volumeProfile.set(node.price, node);
+      }
+      
       fs.writeFileSync(this.dbFile, JSON.stringify({
         events: eventsToSave,
-        journeys: journeysToSave
+        journeys: journeysToSave,
+        volumeProfile: topVolumeNodes
       }));
     } catch (e) {
       console.error('[Whale Engine] Failed to save DB', e);
@@ -93,7 +109,8 @@ export class WhaleTracker {
   public getHistory() {
     return {
       events: this.events.slice(0, 200), // return last 200 to clients
-      journeys: Array.from(this.journeys.values())
+      journeys: Array.from(this.journeys.values()),
+      topVolumeNodes: Array.from(this.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 50)
     };
   }
 
@@ -132,6 +149,24 @@ export class WhaleTracker {
       const val = price * qty;
       const isMaker = msg.m; // true if maker
       
+      // Volume Profile Tracking (50x Zoom)
+      const mag = Math.pow(10, Math.floor(Math.log10(price)));
+      const step50 = mag * 0.0005 * 50; 
+      const bucketPrice = Math.floor(price / step50) * step50;
+
+      let bkt = this.volumeProfile.get(bucketPrice);
+      if (!bkt) {
+        bkt = { price: bucketPrice, bVol: 0, sVol: 0, bFreq: 0, sFreq: 0, firstSeen: Date.now() };
+        this.volumeProfile.set(bucketPrice, bkt);
+      }
+      if (isMaker) { // Buyer is maker = Seller initiated
+         bkt.sVol += qty;
+         bkt.sFreq += 1;
+      } else { // Seller is maker = Buyer initiated
+         bkt.bVol += qty;
+         bkt.bFreq += 1;
+      }
+
       // Whale Threshold (e.g. > $100k)
       if (val >= 100000) {
         this.detectWhaleEvent(msg.E, price, qty, val, isMaker);
