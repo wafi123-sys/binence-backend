@@ -584,7 +584,7 @@
   <div class="stat-item"><div class="stat-label">Best Ask</div><div class="stat-value" id="sAsk" style="color:var(--red)">&mdash;</div></div>
   <div class="stat-item"><div class="stat-label">Bid/Ask Ratio</div><div class="stat-value" id="sRatio">&mdash;</div></div>
   <div class="stat-item" style="margin-left: auto; background: var(--bg3); padding: 2px 10px; border-radius: 4px; border: 1px solid var(--border);">
-    <div class="stat-label" style="color: var(--txt); font-weight: bold; font-size: 9px;">GLOBAL SMART MONEY</div>
+    <div class="stat-label" style="color: var(--txt); font-weight: bold; font-size: 9px;">RISK TRADE</div>
     <div class="stat-value" id="sGlobalSm" style="color: var(--txt3); font-size: 14px; text-align: right;">--</div>
   </div>
 </div>
@@ -3451,5 +3451,59 @@ if (scoreCalcInterval) clearInterval(scoreCalcInterval);
 scoreCalcInterval = setInterval(calculateSmartMoneyScore, 5000);
 startFlowTimer();
 window.addEventListener('resize', () => { renderDepthChart(); renderLiquidityProfile(); });
+
+// GLOBAL SMART MONEY INDEX (RISK TRADE)
+const top10Coins = ['btcusdt', 'ethusdt', 'bnbusdt', 'solusdt', 'xrpusdt', 'dogeusdt', 'adausdt', 'trxusdt', 'avaxusdt', 'linkusdt'];
+const globalStreams = top10Coins.map(c => `${c}@aggTrade`).join('/');
+const globalWsUrl = `wss://fstream.binance.com/stream?streams=${globalStreams}`;
+
+let globalBVol = 0;
+let globalSVol = 0;
+
+function connectGlobalIndex() {
+  const globalWs = new WebSocket(globalWsUrl);
+  globalWs.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.data) {
+      const trade = data.data;
+      const isBuy = !trade.m;
+      const notional = parseFloat(trade.p) * parseFloat(trade.q);
+      if (isBuy) globalBVol += notional;
+      else globalSVol += notional;
+    }
+  };
+  globalWs.onclose = () => {
+    setTimeout(connectGlobalIndex, 5000);
+  };
+}
+
+connectGlobalIndex();
+
+setInterval(() => {
+  const total = globalBVol + globalSVol;
+  const el = document.getElementById('sGlobalSm');
+  if (el) {
+    if (total === 0) {
+      el.textContent = 'CALCULATING...';
+      return;
+    }
+    const score = (globalBVol / total) * 100;
+    
+    if (score >= 60) {
+      el.textContent = 'ON 🟢';
+      el.style.color = 'var(--green)';
+    } else if (score <= 40) {
+      el.textContent = 'OFF 🔴';
+      el.style.color = 'var(--red)';
+    } else {
+      el.textContent = 'NETRAL ⚪';
+      el.style.color = 'var(--txt2)';
+    }
+  }
+  
+  // Decay volumes to keep the index focused on recent market flow (approx 5 min rolling window)
+  globalBVol *= 0.99;
+  globalSVol *= 0.99;
+}, 2000);
 
 </script>
