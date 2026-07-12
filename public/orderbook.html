@@ -794,16 +794,16 @@
         <button class="filter-toggle" data-filter="highDelta" style="padding:4px 12px; border-radius:20px; font-size:10px; font-weight:bold; background:var(--bg5); color:var(--txt2); border:1px solid var(--border); cursor:pointer; transition:all 0.15s; white-space:nowrap;">⚡ High Delta</button>
         <button class="filter-toggle" data-filter="aiFocus" style="padding:4px 12px; border-radius:20px; font-size:10px; font-weight:bold; background:var(--bg5); color:var(--accent); border:1px solid var(--accent); cursor:pointer; font-weight:bold; transition:all 0.15s; white-space:nowrap;">🧠 AI Focus</button>
       </div>
-      <div class="list-header" style="display:flex; padding: 4px 10px; font-size: 10px; color: var(--txt3); background: var(--bg2); border-bottom: 1px solid var(--border);">
-        <div style="flex:1.2; padding-right:8px;">PRICE</div>
-        <div style="flex:1.5; padding-left:4px;">BUY LOT</div>
-        <div style="flex:0.8; text-align:right;">B.FREQ</div>
-        <div style="flex:1.5; padding-left:8px;">SELL LOT</div>
-        <div style="flex:0.8; text-align:right;">S.FREQ</div>
-        <div style="flex:1; text-align:right;">IMB</div>
-        <div style="flex:1.2; text-align:right;">DELTA</div>
-        <div style="flex:0.8; text-align:center;">WHALE</div>
-        <div style="flex:1.5;">AI STATUS</div>
+      <div class="list-header" style="display:grid; grid-template-columns: 1.3fr 1.3fr 0.6fr 1.3fr 0.6fr 1.1fr 1.2fr 0.6fr 1.7fr; gap:4px; padding: 4px 10px; font-size: 10px; color: var(--txt3); background: var(--bg2); border-bottom: 1px solid var(--border);">
+        <div style="padding-right:8px; white-space:nowrap;">PRICE</div>
+        <div style="padding-left:4px; white-space:nowrap;">BUY LOT</div>
+        <div style="text-align:right; white-space:nowrap;">B.FQ</div>
+        <div style="padding-left:8px; white-space:nowrap;">SELL LOT</div>
+        <div style="text-align:right; white-space:nowrap;">S.FQ</div>
+        <div style="text-align:right; white-space:nowrap;">IMB</div>
+        <div style="text-align:right; white-space:nowrap;">DELTA</div>
+        <div style="text-align:center; white-space:nowrap;">WHL</div>
+        <div style="white-space:nowrap;">AI STATUS</div>
       </div>
       <div id="priceLevelList" class="trades-scroll" style="flex:1; overflow-y:auto; min-height: 200px;">
         <div style="padding: 20px; text-align:center; font-size: 11px; color: var(--txt3);">Collecting live trade data...</div>
@@ -2026,25 +2026,25 @@ function renderPriceLevelSummary() {
     const rowBg = isCurrentPrice ? 'rgba(79, 110, 247, 0.2)' : 'transparent';
     const currentIndicator = isCurrentPrice ? ' <span style="font-size:10px;">👈 CURRENT</span>' : '';
     
-    h += `<div style="display:flex; padding:4px 10px; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
-      <div style="flex:1.2; padding-right:8px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold;">${fmtP(p)}${currentIndicator}</div>
+    h += `<div style="display:grid; grid-template-columns: 1.3fr 1.3fr 0.6fr 1.3fr 0.6fr 1.1fr 1.2fr 0.6fr 1.7fr; gap:4px; padding:4px 10px; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
+      <div style="padding-right:8px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold; white-space:nowrap;">${fmtP(p)}${currentIndicator}</div>
       
-      <div style="flex:1.5; position:relative; text-align:left; padding-left:4px;">
+      <div style="position:relative; text-align:left; padding-left:4px; white-space:nowrap;">
         <div style="position:absolute; top:0; left:4px; height:100%; width:${bPct}%; background:rgba(0,255,0,0.15);"></div>
         <span style="position:relative; z-index:1; color:var(--green);">${fmtQ(st.bVol)}</span>
       </div>
-      <div style="flex:0.8; text-align:right; color:var(--txt3);">${st.bFreq > 0 ? st.bFreq : '-'}</div>
+      <div style="text-align:right; color:var(--txt3);">${st.bFreq > 0 ? st.bFreq : '-'}</div>
       
-      <div style="flex:1.5; position:relative; text-align:left; padding-left:8px;">
+      <div style="position:relative; text-align:left; padding-left:8px; white-space:nowrap;">
         <div style="position:absolute; top:0; left:8px; height:100%; width:${sPct}%; background:rgba(255,0,0,0.15);"></div>
         <span style="position:relative; z-index:1; color:var(--red);">${fmtQ(st.sVol)}</span>
       </div>
-      <div style="flex:0.8; text-align:right; color:var(--txt3);">${st.sFreq > 0 ? st.sFreq : '-'}</div>
+      <div style="text-align:right; color:var(--txt3);">${st.sFreq > 0 ? st.sFreq : '-'}</div>
       
-      <div style="flex:1; text-align:right; color:${imbColor};">${imbStr}</div>
-      <div style="flex:1.2; text-align:right; color:${deltaColor};">${deltaStr}</div>
-      <div style="flex:0.8; text-align:center; color:var(--accent);">${whale}</div>
-      <div style="flex:1.5; text-align:left; padding-left:12px; display:flex; align-items:center;">${aiHtml}</div>
+      <div style="text-align:right; color:${imbColor}; white-space:nowrap;">${imbStr}</div>
+      <div style="text-align:right; color:${deltaColor}; white-space:nowrap;">${deltaStr}</div>
+      <div style="text-align:center; color:var(--accent); white-space:nowrap;">${whale}</div>
+      <div style="text-align:left; display:flex; align-items:center; gap:4px; white-space:nowrap;">${aiHtml}</div>
     </div>`;
   }
   el.innerHTML = h;
