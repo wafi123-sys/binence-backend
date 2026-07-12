@@ -1905,12 +1905,28 @@ function updateHeroPrice(price, isBuy) {
 // ==============================================
 // SMART PRICE LEVEL SUMMARY (Volume Profile)
 // ==============================================
+function getAdaptiveBaseStep(price) {
+  if (!currentTickSizes || currentTickSizes.length === 0) return 5;
+  const targetStep = price * (5 / 64000); // 5 is the ideal base step for BTC at $64k
+  let bestStep = currentTickSizes[5]; 
+  let minDiff = Infinity;
+  for (const c of currentTickSizes) {
+    const diff = Math.abs(c - targetStep);
+    if (diff < minDiff) {
+      minDiff = diff;
+      bestStep = c;
+    }
+  }
+  return bestStep;
+}
+
 function renderPriceLevelSummary() {
   const el = document.getElementById('priceLevelList');
   if (!el || priceLevelStats.size === 0) return;
   
-  // 1. Zoom Aggregation (Base step is mag * 0.0005, which is currentTickSizes[5])
-  const step = currentTickSizes[5] * activeZoomLevel;
+  // 1. Zoom Aggregation (Adaptive based on price, keeps BTC at 5 base step)
+  const baseStep = getAdaptiveBaseStep(prevPrice || 64000);
+  const step = baseStep * activeZoomLevel;
   const bucketedStats = new Map();
   
   for (const [price, st] of priceLevelStats.entries()) {
