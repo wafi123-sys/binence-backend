@@ -1905,8 +1905,8 @@ function renderPriceLevelSummary() {
   const el = document.getElementById('priceLevelList');
   if (!el || priceLevelStats.size === 0) return;
   
-  // 1. Zoom Aggregation
-  const step = currentTickSizes[9] * activeZoomLevel;
+  // 1. Zoom Aggregation (Base step is mag * 0.0005, which is currentTickSizes[5])
+  const step = currentTickSizes[5] * activeZoomLevel;
   const bucketedStats = new Map();
   
   for (const [price, st] of priceLevelStats.entries()) {
