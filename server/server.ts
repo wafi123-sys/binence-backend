@@ -41,6 +41,46 @@ app.prepare().then(() => {
       }
       return;
     }
+    if (req.url === '/openapi.json') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*'); 
+      res.end(JSON.stringify({
+        openapi: "3.0.0",
+        info: {
+          title: "Agnoia Terminal API",
+          version: "1.0.0",
+          description: "API for accessing Market Data and Whale Order Monitor."
+        },
+        servers: [
+          { url: "https://binance-backend-production.up.railway.app", description: "Production Server" }
+        ],
+        paths: {
+          "/api/market-data": {
+            get: {
+              summary: "Get Market Data (OHLC)",
+              description: "Returns candlestick history data.",
+              responses: {
+                "200": {
+                  description: "Successful response"
+                }
+              }
+            }
+          },
+          "/api/whale-history": {
+            get: {
+              summary: "Get Whale History",
+              description: "Returns a list of large whale order events.",
+              responses: {
+                "200": {
+                  description: "Successful response"
+                }
+              }
+            }
+          }
+        }
+      }));
+      return;
+    }
     handle(req, res);
   });
 
