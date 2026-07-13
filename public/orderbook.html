@@ -950,15 +950,28 @@
   // Filter Buttons Interaction
   document.querySelectorAll('.f-btn').forEach(btn => {
     btn.addEventListener('click', function() {
-      // Very basic toggle logic: if it's "All" or "Both", deactivate others in the grid
       const grid = this.parentElement;
+      const sectionTitle = grid.previousElementSibling ? grid.previousElementSibling.textContent : '';
+      
       if(this.textContent === 'All' || this.textContent === 'Both') {
         grid.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
         this.classList.add('active');
       } else {
-        grid.querySelector('.f-btn:first-child').classList.remove('active');
-        this.classList.toggle('active');
+        if (grid.querySelector('.f-btn:first-child').textContent === 'All' || grid.querySelector('.f-btn:first-child').textContent === 'Both') {
+            grid.querySelector('.f-btn:first-child').classList.remove('active');
+        }
+        
+        if (sectionTitle === 'Whale Size (USD)' || sectionTitle === 'Importance Score') {
+           grid.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
+           this.classList.add('active');
+        } else {
+           this.classList.toggle('active');
+           if (grid.querySelectorAll('.f-btn.active').length === 0) {
+              grid.querySelector('.f-btn:first-child').classList.add('active');
+           }
+        }
       }
+      renderBigOrders();
     });
   });
 
@@ -2215,6 +2228,64 @@ function renderBigOrders() {
   
   // Filtering logic
   let filtered = whaleEvents.filter(w => w.symbol === currentSymbol);
+  
+  const sections = document.querySelectorAll('.filter-panel-body > div');
+  if (sections.length >= 5) {
+    const types = Array.from(sections[0].querySelectorAll('.f-btn.active')).map(b => b.textContent.trim());
+    const sides = Array.from(sections[1].querySelectorAll('.f-btn.active')).map(b => b.textContent.trim());
+    const sizes = Array.from(sections[2].querySelectorAll('.f-btn.active')).map(b => b.textContent.trim());
+    const statuses = Array.from(sections[3].querySelectorAll('.f-btn.active')).map(b => b.textContent.trim());
+    const scores = Array.from(sections[4].querySelectorAll('.f-btn.active')).map(b => b.textContent.trim());
+
+    filtered = filtered.filter(w => {
+      // Order Type
+      if (!types.includes('All') && types.length > 0) {
+        const e = (w.exec || '').toUpperCase();
+        if (!(types.includes('Limit') && e === 'LIMIT') &&
+            !(types.includes('Market') && e === 'MARKET') &&
+            !(types.includes('Iceberg') && e === 'ICEBERG') &&
+            !(types.includes('Hidden') && e === 'HIDDEN') &&
+            !(types.includes('Partial Fill') && e === 'PARTIAL')) {
+          return false;
+        }
+      }
+      
+      // Side
+      if (!sides.includes('Both') && sides.length > 0) {
+        const isBuy = w.side === 'buy' || w.side === 'bid';
+        if (isBuy && !sides.includes('Buy')) return false;
+        if (!isBuy && !sides.includes('Sell')) return false;
+      }
+      
+      // Size
+      if (sizes.length > 0) {
+        if (sizes.includes('>1M') && w.val < 1000000) return false;
+        else if (sizes.includes('>500K') && w.val < 500000) return false;
+        else if (sizes.includes('>250K') && w.val < 250000) return false;
+        else if (sizes.includes('>100K') && w.val < 100000) return false;
+      }
+      
+      // Status
+      if (!statuses.includes('All') && statuses.length > 0) {
+        const s = (w.status || '').toUpperCase();
+        if (!(statuses.includes('Absorption') && s.includes('ABSORB')) &&
+            !(statuses.includes('Spoof') && s.includes('SPOOF')) &&
+            !(statuses.includes('Liq Sweep') && s.includes('LIQ'))) {
+          return false;
+        }
+      }
+      
+      // Score
+      if (scores.length > 0) {
+        if (scores.includes('>90') && w.score < 90) return false;
+        else if (scores.includes('>80') && w.score < 80) return false;
+        else if (scores.includes('>50') && w.score < 50) return false;
+      }
+
+      return true;
+    });
+  }
+  
   if (aiFocusEnabled) {
     filtered = filtered.filter(w => {
       const j = whaleJourneys.get(w.journeyId);
