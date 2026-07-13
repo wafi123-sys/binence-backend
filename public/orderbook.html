@@ -669,23 +669,17 @@
             <button class="view-tab" data-view="heatmap">&#128200; Live Chart</button>
           </div>
           
-          <!-- LWC CONTROLS (Only visible in Live Chart view) -->
-          <div id="heatmapControls" style="display:none; align-items:center; gap:15px; margin-left:auto;">
-            <div class="ctrl-bar" style="padding:0; border:none; margin:0; background:transparent;">
-              <span class="ctrl-label">Timeframe</span>
-              <div class="ctrl-group" id="tfCtrl">
-                <button class="ctrl-btn" data-tf="1m">1m</button>
-                <button class="ctrl-btn" data-tf="5m">5m</button>
-                <button class="ctrl-btn active" data-tf="15m">15m</button>
-                <button class="ctrl-btn" data-tf="1h">1h</button>
-                <button class="ctrl-btn" data-tf="4h">4h</button>
-                <button class="ctrl-btn" data-tf="1d">1d</button>
+            <!-- TV CONTROLS (Only visible in Live Chart view) -->
+            <div id="heatmapControls" style="display:flex; align-items:center; gap:15px; margin-left:auto;">
+              <div class="ctrl-bar" style="padding:0; border:none; margin:0; background:transparent;">
+                <button class="ctrl-btn" id="btnToggleTvTools" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--txt3); border:1px solid var(--border); border-radius:6px; padding:2px 8px; transition:all 0.15s;" onmouseover="this.style.color='var(--txt)'" onmouseout="this.style.color='var(--txt3)'">
+                  &#9881; Tools
+                </button>
+                <button class="ctrl-btn" id="btnSaveTvLayout" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:2px 8px; transition:all 0.15s; margin-left:8px;" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='transparent'">
+                  &#128190; Save
+                </button>
               </div>
-              <button class="ctrl-btn" id="btnRefreshChart" style="margin-left: 10px; display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:2px 8px; transition:all 0.15s;" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg5)'">
-                🔄 REFRESH
-              </button>
             </div>
-          </div>
         </div>
         <!-- DEPTH CHART CONTROLS (Only visible in depth view) -->
         <div class="ctrl-bar" id="depthChartCtrlBar" style="display:none;">
@@ -933,6 +927,7 @@
   </div>
 
 <script>
+  let showTvTools = false;
   // WHALE FILTER & JOURNEY ENGINE
   const whaleJourneys = new Map();
   let aiFocusEnabled = false;
@@ -946,6 +941,33 @@
     this.style.background = aiFocusEnabled ? 'rgba(0,136,255,0.2)' : 'var(--bg5)';
     this.style.color = aiFocusEnabled ? '#0088ff' : 'var(--accent)';
     this.style.borderColor = aiFocusEnabled ? '#0088ff' : 'var(--accent)';
+  });
+  
+  // TV Tools Logic
+  document.getElementById('btnToggleTvTools')?.addEventListener('click', ()=>{
+    showTvTools = !showTvTools;
+    if (tvWidget) {
+      tvWidget.save(state => {
+        localStorage.setItem('tvLayout', JSON.stringify(state));
+        tvWidget.remove();
+        tvWidget = null;
+        initTVChart(currentSymbol);
+      });
+    } else {
+      initTVChart(currentSymbol);
+    }
+  });
+
+  document.getElementById('btnSaveTvLayout')?.addEventListener('click', ()=>{
+    if (tvWidget) {
+      tvWidget.save(state => {
+        localStorage.setItem('tvLayout', JSON.stringify(state));
+        const b = document.getElementById('btnSaveTvLayout');
+        const oText = b.innerHTML;
+        b.innerHTML = '&#10004; Saved';
+        setTimeout(() => b.innerHTML = oText, 2000);
+      });
+    }
   });
 
   // Filter Buttons Interaction
@@ -1458,8 +1480,9 @@ function initTVChart(sym) {
     "enable_publishing": false,
     "backgroundColor": "#0A0A0A",
     "gridColor": "#1A1A1A",
-    "hide_top_toolbar": false,
-    "hide_side_toolbar": false,
+    "hide_top_toolbar": !showTvTools,
+    "hide_side_toolbar": !showTvTools,
+    "saved_data": localStorage.getItem('tvLayout') ? JSON.parse(localStorage.getItem('tvLayout')) : null,
     "hide_legend": false,
     "save_image": false,
     "container_id": "tvContainer",
@@ -3131,7 +3154,7 @@ document.querySelectorAll('.view-tab').forEach(btn => {
       document.getElementById('depthChart').style.display = 'none';
       document.getElementById('tvContainer').style.display = 'block';
       document.getElementById('depthChartCtrlBar').style.display = 'none';
-      document.getElementById('heatmapControls').style.display = 'none';
+      document.getElementById('heatmapControls').style.display = 'flex';
       initTVChart(currentSymbol);
     }
   });
