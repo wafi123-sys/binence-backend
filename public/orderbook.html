@@ -1452,7 +1452,7 @@ function initTVChart(sym) {
     "interval": "15",
     "timezone": "Etc/UTC",
     "theme": "dark",
-    "style": "1",
+    "style": "3", // 3 = Area Chart
     "locale": "en",
     "enable_publishing": false,
     "backgroundColor": "#0A0A0A",
@@ -1467,6 +1467,16 @@ function initTVChart(sym) {
       "header_symbol_search",
       "header_compare"
     ],
+    "overrides": {
+      "mainSeriesProperties.areaStyle.color1": "rgba(255, 213, 79, 0.4)", // top gradient (accent color)
+      "mainSeriesProperties.areaStyle.color2": "rgba(255, 213, 79, 0.0)", // bottom gradient
+      "mainSeriesProperties.areaStyle.linecolor": "#FFD54F", // line color
+      "mainSeriesProperties.areaStyle.linewidth": 2,
+      "paneProperties.background": "#0A0A0A",
+      "paneProperties.vertGridProperties.color": "#1A1A1A",
+      "paneProperties.horzGridProperties.color": "#1A1A1A",
+      "scalesProperties.textColor": "#B3B3B3"
+    },
     "studies": [
       "Volume@tv-basicstudies"
     ]
