@@ -118,6 +118,10 @@ export class ArenaWSServer {
     this.engine.start();
   }
 
+  getEngine(): Engine {
+    return this.engine;
+  }
+
   getPlayerCount(): number {
     return [...this.clients.values()].filter((c) => c.user !== null).length;
   }

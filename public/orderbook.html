@@ -680,6 +680,9 @@
                 <button class="ctrl-btn" data-tf="4h">4h</button>
                 <button class="ctrl-btn" data-tf="1d">1d</button>
               </div>
+              <button class="ctrl-btn" id="btnRefreshChart" style="margin-left: 10px; display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:2px 8px; transition:all 0.15s;" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='var(--bg5)'">
+                🔄 REFRESH
+              </button>
             </div>
           </div>
         </div>
@@ -1051,6 +1054,7 @@ let globalSellPVol = 0;
 let whaleEvents = [];
 
 function pushWhaleEvent(ev) {
+  ev.symbol = currentSymbol;
   let journeyFound = null;
   // Heuristic tracker
   for (const [id, j] of whaleJourneys.entries()) {
@@ -2210,7 +2214,7 @@ function renderBigOrders() {
   let h = '';
   
   // Filtering logic
-  let filtered = whaleEvents;
+  let filtered = whaleEvents.filter(w => w.symbol === currentSymbol);
   if (aiFocusEnabled) {
     filtered = filtered.filter(w => {
       const j = whaleJourneys.get(w.journeyId);
@@ -2800,6 +2804,14 @@ document.querySelectorAll('#tfCtrl .ctrl-btn').forEach(btn => {
   });
 });
 
+document.getElementById('btnRefreshChart')?.addEventListener('click', () => {
+  if (lwcSeries) {
+    lwcSeries.setData([]);
+    lastCandle = null;
+  }
+  fetchKlines();
+});
+
 let lwcChart = null;
 let lwcSeries = null;
 let lastCandle = null;
@@ -2821,6 +2833,13 @@ function initLwc() {
     lwcSeries = lwcChart.addCandlestickSeries({
       upColor: '#00d4a8', downColor: '#ff4d6d', borderVisible: false, wickUpColor: '#00d4a8', wickDownColor: '#ff4d6d'
     });
+    
+    // Add ResizeObserver to auto-resize chart when sidebar toggles
+    new ResizeObserver(entries => {
+      if (entries.length === 0 || entries[0].target !== container) return;
+      const newRect = entries[0].contentRect;
+      lwcChart.applyOptions({ width: newRect.width, height: newRect.height });
+    }).observe(container);
   } catch (e) {
     console.error('Failed to init LWC', e);
   }
@@ -2866,6 +2885,12 @@ async function fetchKlines() {
     }
     lwcSeries.setData(uniqueData);
     lastCandle = uniqueData[uniqueData.length - 1];
+    
+    if (lwcChart) {
+      setTimeout(() => {
+        lwcChart.timeScale().fitContent();
+      }, 100);
+    }
   } catch (e) { 
     applyFallback();
   }

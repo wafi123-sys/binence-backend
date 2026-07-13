@@ -21,6 +21,8 @@ const handle = app.getRequestHandler();
 const whaleEngine = new WhaleTracker();
 
 app.prepare().then(() => {
+  let wsServer: ArenaWSServer | null = null;
+
   const server = createServer((req, res) => {
     if (req.url === '/api/whale-history') {
       res.setHeader('Content-Type', 'application/json');
@@ -29,11 +31,21 @@ app.prepare().then(() => {
       res.end(JSON.stringify(whaleEngine.getHistory()));
       return;
     }
+    if (req.url === '/api/market-data') {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*'); 
+      if (wsServer) {
+        res.end(JSON.stringify(wsServer.getEngine().getOHLCData()));
+      } else {
+        res.end(JSON.stringify({ error: 'Server not ready' }));
+      }
+      return;
+    }
     handle(req, res);
   });
 
   // Start WebSocket server attached to the SAME HTTP server (for Cloud hosting)
-  const wsServer = new ArenaWSServer(server);
+  wsServer = new ArenaWSServer(server);
 
   server.listen(nextPort, () => {
     console.log(`\n🏟️  Order Book Arena (Cloud Ready)`);

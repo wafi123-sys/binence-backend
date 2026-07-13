@@ -28,16 +28,34 @@ export default function OrderBookPanel({
   const topPrice = Math.max(maxAskPrice, lastPrice > 0 ? lastPrice + displayLevels : 300 + displayLevels);
   const bottomPrice = Math.min(minBidPrice, lastPrice > 0 ? Math.max(1, lastPrice - displayLevels) : Math.max(1, 300 - displayLevels));
 
-  const domRows = useMemo(() => {
+  const { domRows, maxCumAsk, maxCumBid } = useMemo(() => {
+    let accAsk = 0;
+    const askCum = new Map<number, number>();
+    for (const a of asks) {
+      accAsk += a.totalLot;
+      askCum.set(a.price, accAsk);
+    }
+
+    let accBid = 0;
+    const bidCum = new Map<number, number>();
+    for (const b of bids) {
+      accBid += b.totalLot;
+      bidCum.set(b.price, accBid);
+    }
+
     const rows = [];
     for (let p = topPrice; p >= bottomPrice; p--) {
+      const ask = asks.find(a => a.price === p);
+      const bid = bids.find(b => b.price === p);
       rows.push({
         price: p,
-        ask: asks.find(a => a.price === p),
-        bid: bids.find(b => b.price === p)
+        ask,
+        bid,
+        cumAsk: ask ? askCum.get(p) || 0 : 0,
+        cumBid: bid ? bidCum.get(p) || 0 : 0,
       });
     }
-    return rows;
+    return { domRows: rows, maxCumAsk: accAsk, maxCumBid: accBid };
   }, [asks, bids, topPrice, bottomPrice]);
 
   const handlePlusClick = (price: number, side: OrderSide) => {
@@ -69,7 +87,7 @@ export default function OrderBookPanel({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto" style={{ backgroundColor: '#121212' }}>
+      <div className="flex-1 overflow-y-auto relative" style={{ backgroundColor: '#121212' }}>
         {domRows.map((row) => {
           const isLastPrice = row.price === lastPrice;
           const pColor = row.price > 300 ? 'text-[#00e676]' : (row.price < 300 ? 'text-[#ff1744]' : 'text-slate-300');
@@ -77,48 +95,68 @@ export default function OrderBookPanel({
           return (
             <div 
               key={row.price} 
-              className={`grid items-center h-[22px] text-[11px] font-mono border-b border-[#2a2a2a] cursor-default hover:bg-white/5 ${isLastPrice ? 'bg-[#2a1b38] border-[#9c27b0]' : ''}`}
+              className={`relative grid items-center h-[22px] text-[11px] font-mono border-b border-[#2a2a2a] cursor-default hover:bg-white/5 ${isLastPrice ? 'bg-[#2a1b38] border-[#9c27b0]' : ''}`}
               style={{ gridTemplateColumns: gridTemplate }}
               onClick={() => onPriceClick(row.price, OrderSide.BUY)}
             >
+              {/* Depth Bars */}
+              {row.cumBid > 0 && maxCumBid > 0 && (
+                <div 
+                  className="absolute top-0 bottom-0 bg-[#00e676]/10 pointer-events-none transition-all duration-200" 
+                  style={{ 
+                    right: 'calc(50% + 32.5px)', 
+                    width: `calc(${(row.cumBid / maxCumBid)} * (50% - 32.5px))` 
+                  }} 
+                />
+              )}
+              {row.cumAsk > 0 && maxCumAsk > 0 && (
+                <div 
+                  className="absolute top-0 bottom-0 bg-[#ff1744]/10 pointer-events-none transition-all duration-200" 
+                  style={{ 
+                    left: 'calc(50% + 32.5px)', 
+                    width: `calc(${(row.cumAsk / maxCumAsk)} * (50% - 32.5px))` 
+                  }} 
+                />
+              )}
+
               {/* Trade */}
-              <div></div>
+              <div className="relative z-10"></div>
 
               {/* Buy Plus Button */}
               <div 
-                className="flex items-center justify-center cursor-pointer group h-full w-full"
+                className="relative z-10 flex items-center justify-center cursor-pointer group h-full w-full"
                 onClick={(e) => { e.stopPropagation(); handlePlusClick(row.price, OrderSide.BUY); }}
               >
                  <span className="flex items-center justify-center w-[13px] h-[13px] rounded-full border border-[#00e676] text-[#00e676] text-[11px] font-sans group-hover:bg-[#00e676] group-hover:text-black leading-none pb-[1px]">+</span>
               </div>
 
               {/* Bids Freq & Lot */}
-              <div className="text-right px-1 text-[#7e85cc]">{row.bid?.frequency || ''}</div>
-              <div className="text-center"></div>
-              <div className="text-right pr-2 text-white">{row.bid ? row.bid.totalLot.toLocaleString('id-ID') : ''}</div>
+              <div className="relative z-10 text-right px-1 text-[#7e85cc]">{row.bid?.frequency || ''}</div>
+              <div className="relative z-10 text-center"></div>
+              <div className="relative z-10 text-right pr-2 text-white">{row.bid ? row.bid.totalLot.toLocaleString('id-ID') : ''}</div>
               
               {/* Price Center */}
               <div 
-                className={`text-center font-bold text-[12px] ${pColor} ${isLastPrice ? 'border border-[#9c27b0] rounded-[3px] !text-[#d8b4e2]' : ''}`}
+                className={`relative z-10 text-center font-bold text-[12px] ${pColor} ${isLastPrice ? 'border border-[#9c27b0] rounded-[3px] !text-[#d8b4e2]' : ''}`}
               >
                  {row.price.toLocaleString('id-ID')}
               </div>
               
               {/* Asks Lot & Freq */}
-              <div className="text-left pl-2 text-white">{row.ask ? row.ask.totalLot.toLocaleString('id-ID') : ''}</div>
-              <div className="text-center"></div>
-              <div className="text-left px-1 text-[#7e85cc]">{row.ask?.frequency || ''}</div>
+              <div className="relative z-10 text-left pl-2 text-white">{row.ask ? row.ask.totalLot.toLocaleString('id-ID') : ''}</div>
+              <div className="relative z-10 text-center"></div>
+              <div className="relative z-10 text-left px-1 text-[#7e85cc]">{row.ask?.frequency || ''}</div>
 
               {/* Sell Plus Button */}
               <div 
-                className="flex items-center justify-center cursor-pointer group h-full w-full"
+                className="relative z-10 flex items-center justify-center cursor-pointer group h-full w-full"
                 onClick={(e) => { e.stopPropagation(); handlePlusClick(row.price, OrderSide.SELL); }}
               >
                  <span className="flex items-center justify-center w-[13px] h-[13px] rounded-full border border-[#ff1744] text-[#ff1744] text-[11px] font-sans group-hover:bg-[#ff1744] group-hover:text-white leading-none pb-[1px]">+</span>
               </div>
 
               {/* Done */}
-              <div></div>
+              <div className="relative z-10"></div>
             </div>
           );
         })}

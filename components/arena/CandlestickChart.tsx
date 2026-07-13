@@ -159,18 +159,23 @@ export default function CandlestickChart() {
     if (bars.length === 0) {
       candleRef.current.setData([]);
       volumeRef.current.setData([]);
+      trendlineRef.current.setData([]);
       return;
     }
 
     // Deduplicate by time (latest wins) and sort ascending
+    // Time must be strictly integer (UNIX timestamp in seconds)
     const byTime = new Map<number, OHLCBar>();
-    for (const b of bars) byTime.set(b.time, b);
-    const sorted = Array.from(byTime.values()).sort((a, b) => a.time - b.time);
+    for (const b of bars) {
+      if (typeof b.time !== 'number' || isNaN(b.time)) continue;
+      byTime.set(Math.floor(b.time), b);
+    }
+    const sorted = Array.from(byTime.values()).sort((a, b) => Math.floor(a.time) - Math.floor(b.time));
 
     try {
       candleRef.current.setData(
         sorted.map((b) => ({
-          time:  b.time,
+          time:  Math.floor(b.time) as any,
           open:  b.open,
           high:  b.high,
           low:   b.low,
@@ -180,7 +185,7 @@ export default function CandlestickChart() {
 
       volumeRef.current.setData(
         sorted.map((b) => ({
-          time:  b.time,
+          time:  Math.floor(b.time) as any,
           value: b.volume,
           color: b.close >= b.open
             ? 'rgba(0,230,118,0.3)'
@@ -191,18 +196,23 @@ export default function CandlestickChart() {
       if (sorted.length > 5 && selectedTf === '1w') {
         const firstPoint = sorted[0];
         const currentPoint = sorted[sorted.length - 1];
-        trendlineRef.current.setData([
-          { time: firstPoint.time, value: firstPoint.low * 0.95 },
-          { time: currentPoint.time, value: currentPoint.low * 0.95 },
-        ]);
+        if (Math.floor(firstPoint.time) < Math.floor(currentPoint.time)) {
+          trendlineRef.current.setData([
+            { time: Math.floor(firstPoint.time) as any, value: firstPoint.low * 0.95 },
+            { time: Math.floor(currentPoint.time) as any, value: currentPoint.low * 0.95 },
+          ]);
+        } else {
+          trendlineRef.current.setData([]);
+        }
       } else {
         trendlineRef.current.setData([]);
       }
 
       // Scroll to latest
       chartRef.current?.timeScale().scrollToRealTime();
-    } catch {
-      // Silently ignore stale data errors during fast updates
+    } catch (e) {
+      // Log error to console for debugging, instead of silently ignoring
+      console.error('[CandlestickChart] Error setting data:', e);
     }
   }, [ohlcData, selectedTf]);
 
