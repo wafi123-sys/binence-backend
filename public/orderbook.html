@@ -2565,7 +2565,7 @@ function startFlowTimer() { return; }
     } else {
       const ctx = canvas.getContext('2d');
       depthChartInstance = new Chart(ctx, {
-        type: 'scatter',
+        type: 'line',
         data: data,
         options: {
           responsive: true,
