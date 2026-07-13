@@ -6,7 +6,7 @@
   <title>Agnoia Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
-  <script src="/lightweight-charts.js"></script>
+  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
   <style>
     :root {
       --bg: #0A0A0A;
@@ -704,7 +704,7 @@
         </div>
         <div class="depth-wrap" id="chartAreaWrap" style="position:relative; flex:1; overflow:hidden;">
           <canvas id="depthChart" style="display:block; width:100%; height:100%;"></canvas>
-          <div id="lwcContainer" style="display:none; width:100%; height:100%; position:absolute; top:0; left:0; background:transparent; z-index:10;"></div>
+          <div id="tvContainer" style="display:none; width:100%; height:100%; position:absolute; top:0; left:0; background:var(--bg); z-index:10;"></div>
         </div>
       </div>
     </div>
@@ -1183,8 +1183,23 @@ const MAX_EVENTS = 30;
 let absVolBuy = 0, absVolSell = 0;
 let absStartP = 0;
 let activeWalls = new Map(); // price -> { qty, side, firstSeen }
-const WALL_THRESHOLD_USD = 250000; // $250k USD for a wall
+
+// Removed static WALL_THRESHOLD_USD, now using getAdaptiveThresholds().wallUsd
 let use100ms = true; // For depth stream fallback
+
+// VERIFICATION UTILITY (Phase 2 Rule)
+function executedVolumeNear(price, timeWindowMs) {
+  const now = Date.now();
+  let vol = 0;
+  for (const t of tradesFreqHistory) {
+    if (now - t.time <= timeWindowMs) {
+      if (Math.abs(t.price - price) / price < 0.005) { // 0.5% proximity
+        vol += t.usd;
+      }
+    }
+  }
+  return vol;
+}
 
 // --- Advanced AI Data Connections ---
 let wsFutures = null;
@@ -1412,6 +1427,45 @@ function updatePill(coin) {
 }
 
 // ==============================================
+// TRADINGVIEW WIDGET
+// ==============================================
+let tvWidget = null;
+function initTVChart(sym) {
+  const container = document.getElementById('tvContainer');
+  if (!container) return;
+  if (tvWidget) {
+    tvWidget.remove();
+    tvWidget = null;
+  }
+  let symbolClean = sym.toUpperCase();
+  if (!symbolClean.endsWith("USDT")) symbolClean += "USDT";
+  tvWidget = new TradingView.widget({
+    "autosize": true,
+    "symbol": "BINANCE:" + symbolClean,
+    "interval": "15",
+    "timezone": "Etc/UTC",
+    "theme": "dark",
+    "style": "1",
+    "locale": "en",
+    "enable_publishing": false,
+    "backgroundColor": "#0A0A0A",
+    "gridColor": "#1A1A1A",
+    "hide_top_toolbar": false,
+    "hide_legend": false,
+    "save_image": false,
+    "container_id": "tvContainer",
+    "toolbar_bg": "#0A0A0A",
+    "disabled_features": [
+      "header_symbol_search",
+      "header_compare"
+    ],
+    "studies": [
+      "Volume@tv-basicstudies"
+    ]
+  });
+}
+
+// ==============================================
 // SWITCH SYMBOL
 // ==============================================
 function switchSymbol(sym) {
@@ -1440,6 +1494,16 @@ function switchSymbol(sym) {
   
   use100ms = true; // reset fallback on new coin
   heatmapHistory = [];
+  
+  // MEMORY LEAK FIX (Clean history on switch)
+  priceHistory90s = [];
+  tradesFreqHistory = [];
+  lastIgnitionTime = 0;
+  
+  if (tvWidget && currentView === 'heatmap') {
+    initTVChart(sym);
+  }
+  
   heatmapBubbles = [];
   lastHmSnapshot = 0;
   hmTooltipData = null;
@@ -1635,66 +1699,102 @@ function processOrderBook() {
 
   // --- SMART MONEY WALL TRACKER ---
   if (latestTradeP > 0) {
+    const tier = getAdaptiveThresholds();
     const currentWalls = new Map();
     for (const [p, q] of orderBookMap.asks.entries()) {
-      if (p * q > WALL_THRESHOLD_USD) currentWalls.set(p, { qty: q, side: 'ask', time: now });
+      if (p * q > tier.wallUsd) currentWalls.set(p, { qty: q, side: 'ask', time: now });
     }
     for (const [p, q] of orderBookMap.bids.entries()) {
-      if (p * q > WALL_THRESHOLD_USD) currentWalls.set(p, { qty: q, side: 'bid', time: now });
+      if (p * q > tier.wallUsd) currentWalls.set(p, { qty: q, side: 'bid', time: now });
     }
 
     for (const [p, oldWall] of activeWalls.entries()) {
       if (!currentWalls.has(p)) {
         const livedFor = now - oldWall.firstSeen;
-        const isSwept = Math.abs(latestTradeP - p) / p < 0.002; // within 0.2% of trade
         const valUSD = p * oldWall.qty;
         
-        if (isSwept) {
-          // ASK wall swept = bearish (price broke below ask wall = sellers won)
-          // BID wall swept = bullish (price broke above bid wall = buyers won)
-          const side = oldWall.side; // 'ask' or 'bid'
-          classifyAndPush(side === 'bid' ? 'SWEEP_BID' : 'SWEEP_ASK', {
-            desc: `${side.toUpperCase()} wall at ${fmtP(p)} swept`,
-            usdtVal: valUSD,
-            side
-          });
-          if (valUSD > 150000) {
-             pushWhaleEvent({
-                time: now, side, price: p, qty: oldWall.qty, val: valUSD,
-                exec: 'ICEBERG', score: 99,
-                status: side === 'bid' ? 'ABSORBING' : 'ICEBERG'
-             });
+        let migratedTo = null;
+        for (const [np, cw] of currentWalls.entries()) {
+          if (cw.side === oldWall.side && Math.abs(cw.qty - oldWall.qty)/oldWall.qty < tier.migrationPct) {
+            migratedTo = np; break;
           }
-        } else {
-          let migratedTo = null;
-          for (const [np, newWall] of currentWalls.entries()) {
-            if (!activeWalls.has(np) && newWall.side === oldWall.side) {
-              if (Math.abs(np - p) / p < 0.02) { migratedTo = np; break; }
+        }
+        
+        if (Math.abs(p - latestTradeP) / latestTradeP < 0.005) {
+          const executed = executedVolumeNear(p, 5000);
+          const isSwept = executed > (valUSD * 0.4);
+          
+          if (isSwept) {
+            const side = oldWall.side;
+            classifyAndPush(side === 'bid' ? 'SWEEP_BID' : 'SWEEP_ASK', {
+              desc: `${side.toUpperCase()} wall at ${fmtP(p)} swept (Exec: $${fmtVol(executed)})`,
+              usdtVal: valUSD,
+              side
+            });
+            if (valUSD > tier.whaleUsd) {
+               pushWhaleEvent({
+                  time: now, side, price: p, qty: oldWall.qty, val: valUSD,
+                  exec: 'ICEBERG', score: 99,
+                  status: side === 'bid' ? 'ABSORBING' : 'ICEBERG'
+               });
             }
-          }
-          if (migratedTo) {
+          } else if (migratedTo) {
             classifyAndPush('MIGRATION', {
-              desc: `Wall moved ${fmtP(p)} ➡️ ${fmtP(migratedTo)}`,
+              desc: `Wall moved ${fmtP(p)} -> ${fmtP(migratedTo)}`,
               usdtVal: valUSD,
               side: oldWall.side
             });
-          } else if (livedFor < 15000) {
+          } else if (livedFor < tier.spoofWindowMs && executed < (valUSD * 0.05)) {
             classifyAndPush('SPOOF', {
               desc: `Fake wall at ${fmtP(p)} vanished`,
               usdtVal: valUSD,
               side: oldWall.side
             });
-            if (valUSD > 150000) {
-               pushWhaleEvent({
-                  time: now, side: oldWall.side, price: p, qty: oldWall.qty, val: valUSD,
-                  exec: 'SPOOF', score: 88,
-                  status: 'SPOOF ALERT'
+            
+            // Phase 3: STOP HUNT ENGINEERED
+            const recentWhaleTime = tradesFreqHistory.find(t => now - t.time < 5000 && t.usd > tier.whaleUsd);
+            if (recentWhaleTime && recentWhaleTime.isBuy === (oldWall.side === 'ask')) {
+               classifyAndPush('STOP_HUNT_ENGINEERED', {
+                 desc: `Engineered Stop Hunt at ${fmtP(p)}`,
+                 usdtVal: valUSD,
+                 side: oldWall.side
                });
             }
+          }
+        } else {
+           // Not near price
+           if (migratedTo) {
+             classifyAndPush('MIGRATION', {
+                desc: `Wall moved ${fmtP(p)} -> ${fmtP(migratedTo)}`,
+                usdtVal: valUSD,
+                side: oldWall.side
+              });
+           } else if (livedFor < tier.spoofWindowMs) {
+              classifyAndPush('SPOOF', {
+                desc: `Fake wall at ${fmtP(p)} vanished`,
+                usdtVal: valUSD,
+                side: oldWall.side
+              });
+           }
+        }
+        activeWalls.delete(p);
+      } else {
+        // Phase 3: Trap Detection
+        const isNear = Math.abs(p - latestTradeP) / latestTradeP < 0.002;
+        if (isNear && (now - oldWall.firstSeen > 10000)) {
+          const execVol = executedVolumeNear(p, 10000);
+          if (execVol < (p * oldWall.qty * 0.1)) {
+            if (oldWall.side === 'ask' && latestTradeP < p) {
+              classifyAndPush('TRAP_BEARISH', { desc: `Price trapped below ${fmtP(p)} ask wall`, usdtVal: p*oldWall.qty, side:'ask' });
+            } else if (oldWall.side === 'bid' && latestTradeP > p) {
+              classifyAndPush('TRAP_BULLISH', { desc: `Price trapped above ${fmtP(p)} bid wall`, usdtVal: p*oldWall.qty, side:'bid' });
+            }
+            oldWall.firstSeen = now; // reset timer to prevent spam
           }
         }
       }
     }
+    
     for (const [p, w] of currentWalls.entries()) {
       let aw = activeWalls.get(p);
       if (!aw) {
@@ -1705,11 +1805,11 @@ function processOrderBook() {
       }
       
       const valUSD = aw.qty * p;
-      if (!aw.logged && valUSD > 250000) {
+      if (!aw.logged && valUSD > tier.wallUsd) {
          aw.logged = true;
          pushWhaleEvent({
             time: now, side: aw.side, price: p, qty: aw.qty, val: valUSD,
-            exec: 'LIMIT', score: Math.min(99, Math.floor(80 + (valUSD/1000000)*20)),
+            exec: 'LIMIT', score: Math.min(99, Math.floor(80 + (valUSD/(tier.wallUsd*3))*20)),
             status: aw.side === 'bid' ? 'BUY WALL' : 'SELL WALL'
          });
       }
@@ -1786,12 +1886,21 @@ function connectTradesWS(sym) {
   wsTrades.onmessage = (e) => {
     const d = JSON.parse(e.data);
     const price = +d.p, qty = +d.q, isBuy = !d.m;
+    const nowTs = Date.now();
     trades.unshift({ price, qty, isBuy, time: d.T });
     if (trades.length > MAX_TRADES) trades.pop();
     
     latestTradeP = price;
     latestTradeIsBuy = isBuy;
     if (absStartP === 0) absStartP = price;
+    
+    updatePriceHistory();
+    const usdtValue = price * qty;
+    
+    tradesFreqHistory.unshift({ isBuy, qty, usd: usdtValue, time: nowTs, price });
+    if (tradesFreqHistory.length > 2000) tradesFreqHistory.pop();
+    
+    const tier = getAdaptiveThresholds();
     
     // Update Price Level Stats for Smart Summary
     let st = priceLevelStats.get(price);
@@ -1805,14 +1914,14 @@ function connectTradesWS(sym) {
       st.sFreq++;
       globalSellPVol += qty;
     }
-    const valUSD = qty * price;
-    if (valUSD > 50000) st.whale = true;
+    const valUSD = usdtValue;
+    if (valUSD > tier.whaleUsd / 2) st.whale = true;
     
     // Aggressive Whale Trades
-    if (valUSD > 100000) {
+    if (valUSD > tier.whaleUsd) {
        pushWhaleEvent({
           time: d.T, side: isBuy?'buy':'sell', price, qty, val: valUSD,
-          exec: 'MARKET', score: Math.min(99, Math.floor(70 + (valUSD/500000)*30)),
+          exec: 'MARKET', score: Math.min(99, Math.floor(70 + (valUSD/(tier.whaleUsd*3))*30)),
           status: 'AGGRESSIVE'
        });
     }
@@ -1831,11 +1940,29 @@ function connectTradesWS(sym) {
     else       spotCVD -= usdtValue;
 
     // Whale Radar — feed directly into Intelligence Engine
-    if (usdtValue > 100000) {
+    if (usdtValue > tier.whaleUsd) {
       classifyAndPush(isBuy ? 'WHALE_BUY' : 'WHALE_SELL', {
         desc: `${fmtQ(qty)} @ ${fmtP(price)}`,
         usdtVal: usdtValue
       });
+    }
+    
+    // MOMENTUM IGNITION (Phase 2 Rule)
+    if (nowTs - lastIgnitionTime > 10000) {
+      const exec10s = tradesFreqHistory.filter(t => nowTs - t.time <= 10000);
+      const buyVol = exec10s.filter(t => t.isBuy).reduce((s, t) => s + t.usd, 0);
+      const sellVol = exec10s.filter(t => !t.isBuy).reduce((s, t) => s + t.usd, 0);
+      const totalVol10s = buyVol + sellVol;
+      
+      if (totalVol10s > tier.wallUsd) {
+        if (buyVol > sellVol * 3) {
+          classifyAndPush('MOMENTUM_IGNITION', { desc: `Bullish ignition! ($${fmtVol(buyVol)} bought in 10s)`, usdtVal: buyVol, side: 'buy' });
+          lastIgnitionTime = nowTs;
+        } else if (sellVol > buyVol * 3) {
+          classifyAndPush('MOMENTUM_IGNITION', { desc: `Bearish ignition! ($${fmtVol(sellVol)} sold in 10s)`, usdtVal: sellVol, side: 'sell' });
+          lastIgnitionTime = nowTs;
+        }
+      }
     }
 
     // Absorption Tracking
@@ -2510,6 +2637,34 @@ wireCtrl('flowLevelsCtrl', 'fl', val => {
 
 // TRADE FLOW — Reset button
 
+let priceHistory90s = []; // {price, time}
+let tradesFreqHistory = []; // {isBuy, qty, time, usd}
+let lastIgnitionTime = 0;
+
+const VOL_TIERS = [
+  { minVol: 1e9, wallUsd: 1500000, whaleUsd: 500000, spoofWindowMs: 25000, absorbWindowMs: 15000, migrationPct: 0.05, refillTolerance: 0.1 },
+  { minVol: 5e8, wallUsd: 800000,  whaleUsd: 250000, spoofWindowMs: 20000, absorbWindowMs: 10000, migrationPct: 0.04, refillTolerance: 0.15 },
+  { minVol: 1e8, wallUsd: 300000,  whaleUsd: 100000, spoofWindowMs: 15000, absorbWindowMs: 8000,  migrationPct: 0.03, refillTolerance: 0.2 },
+  { minVol: 5e7, wallUsd: 150000,  whaleUsd: 50000,  spoofWindowMs: 10000, absorbWindowMs: 6000,  migrationPct: 0.02, refillTolerance: 0.25 },
+  { minVol: 1e7, wallUsd: 50000,   whaleUsd: 20000,  spoofWindowMs: 8000,  absorbWindowMs: 5000,  migrationPct: 0.02, refillTolerance: 0.3 },
+  { minVol: 0,   wallUsd: 20000,   whaleUsd: 5000,   spoofWindowMs: 5000,  absorbWindowMs: 4000,  migrationPct: 0.015, refillTolerance: 0.4 }
+];
+
+function getAdaptiveThresholds() {
+  const coin = allCoins[currentSymbol];
+  const vol = coin ? coin.vol : 0;
+  for (const tier of VOL_TIERS) {
+    if (vol >= tier.minVol) return tier;
+  }
+  return VOL_TIERS[VOL_TIERS.length - 1];
+}
+
+function updatePriceHistory() {
+  const now = Date.now();
+  if (latestTradeP > 0) priceHistory90s.unshift({ price: latestTradeP, time: now });
+  priceHistory90s = priceHistory90s.filter(p => now - p.time <= 90000);
+}
+
 // ==============================================
 // SMART MONEY INTELLIGENCE ENGINE (15 Layers)
 // ==============================================
@@ -2602,13 +2757,20 @@ function stars(rawType) {
 }
 
 // Layer 4: Confidence Engine
-function calcConfidence(rawType) {
+function calcConfidence(rawType, evData) {
   const base = {
     WHALE_BUY:88,WHALE_SELL:88,SWEEP_BID:84,SWEEP_ASK:84,ABSORPTION:84,
-    ACCUMULATION:80,DISTRIBUTION:80,SPOOF:38,MIGRATION:66,
-    STOP_HUNT:72,LIQUIDITY_SHIFT:64
+    ACCUMULATION:80,DISTRIBUTION:80,SPOOF:70,MIGRATION:66,
+    STOP_HUNT:85,STOP_HUNT_ENGINEERED:95,TRAP_BULLISH:88,TRAP_BEARISH:88,MOMENTUM_IGNITION:92
   };
-  return (base[rawType] || 65) + Math.floor(Math.random()*9);
+  let score = base[rawType] || 65;
+  
+  if (evData && evData.usdtVal) {
+    const tier = getAdaptiveThresholds();
+    if (evData.usdtVal > tier.whaleUsd * 3) score += 5;
+    if (evData.usdtVal > tier.whaleUsd * 5) score += 8;
+  }
+  return Math.min(99, score);
 }
 
 // Layer 10: Pattern Library
@@ -2668,7 +2830,7 @@ function renderSmartMoneyScores() {
 function classifyAndPush(rawType, data) {
   const ts = Date.now();
   const timeStr = new Date().toTimeString().slice(0, 8);
-  const confidence = calcConfidence(rawType);
+  const confidence = calcConfidence(rawType, data);
 
   const ev = { rawType, data, ts, timeStr, confidence, price: latestTradeP };
   CLASSIFIED_EVENTS.unshift(ev);
@@ -2848,15 +3010,14 @@ document.querySelectorAll('.view-tab').forEach(btn => {
       document.getElementById('depthChart').style.display = 'block';
       document.getElementById('depthChartCtrlBar').style.display = 'flex';
       document.getElementById('heatmapControls').style.display = 'none';
-      document.getElementById('lwcContainer').style.display = 'none';
+      document.getElementById('tvContainer').style.display = 'none';
       renderDepthChart();
     } else {
       document.getElementById('depthChart').style.display = 'none';
-      document.getElementById('lwcContainer').style.display = 'block';
+      document.getElementById('tvContainer').style.display = 'block';
       document.getElementById('depthChartCtrlBar').style.display = 'none';
-      document.getElementById('heatmapControls').style.display = 'flex';
-      initLwc();
-      if (!lastCandle) fetchKlines();
+      document.getElementById('heatmapControls').style.display = 'none';
+      initTVChart(currentSymbol);
     }
   });
 });
