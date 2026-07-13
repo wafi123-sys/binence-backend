@@ -7,6 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
       --bg: #0A0A0A;
@@ -2505,7 +2506,107 @@ function startFlowTimer() { return; }
 // ==============================================
 // DEPTH CHART
 // ==============================================
-function renderDepthChart() { return; }
+
+  let depthChartInstance = null;
+  function renderDepthChart() {
+    if (currentView !== 'depth') return;
+    const canvas = document.getElementById('depthChart');
+    if (!canvas) return;
+  
+    const { asks, bids } = orderBook;
+    if (!asks.length || !bids.length) return;
+  
+    const zoomPct = parseInt(document.getElementById('depthZoom').value) / 100;
+    const askItems = asks.slice(0, Math.floor(asks.length * zoomPct) || 1);
+    const bidItems = bids.slice(0, Math.floor(bids.length * zoomPct) || 1);
+  
+    let cumAsks = [];
+    let tA = 0;
+    for (let i = 0; i < askItems.length; i++) {
+      tA += askItems[i].qty;
+      cumAsks.push({ x: askItems[i].price, y: tA });
+    }
+  
+    let cumBids = [];
+    let tB = 0;
+    for (let i = 0; i < bidItems.length; i++) {
+      tB += bidItems[i].qty;
+      cumBids.unshift({ x: bidItems[i].price, y: tB });
+    }
+  
+    const data = {
+      datasets: [
+        {
+          label: 'Bids',
+          data: cumBids,
+          borderColor: '#00D4A8',
+          backgroundColor: 'rgba(0, 212, 168, 0.2)',
+          fill: true,
+          pointRadius: 0,
+          borderWidth: 2,
+          stepped: 'after',
+        },
+        {
+          label: 'Asks',
+          data: cumAsks,
+          borderColor: '#FF4D6D',
+          backgroundColor: 'rgba(255, 77, 109, 0.2)',
+          fill: true,
+          pointRadius: 0,
+          borderWidth: 2,
+          stepped: 'before',
+        }
+      ]
+    };
+  
+    if (depthChartInstance) {
+      depthChartInstance.data = data;
+      depthChartInstance.update('none');
+    } else {
+      const ctx = canvas.getContext('2d');
+      depthChartInstance = new Chart(ctx, {
+        type: 'scatter',
+        data: data,
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: ${fmtQ(ctx.parsed.y)} vol @ ${fmtP(ctx.parsed.x)}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              type: 'linear',
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#808080' }
+            },
+            y: {
+              position: 'right',
+              beginAtZero: true,
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#808080' }
+            }
+          }
+        }
+      });
+    }
+  }
+
+  const depthZoom = document.getElementById('depthZoom');
+  const depthZoomVal = document.getElementById('depthZoomVal');
+  if (depthZoom) {
+    depthZoom.addEventListener('input', () => {
+      depthZoomVal.textContent = depthZoom.value + '%';
+      renderDepthChart();
+    });
+  }
+
 
 // ==============================================
 // SEARCH
