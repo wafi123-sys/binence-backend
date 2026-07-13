@@ -607,7 +607,7 @@
 <div class="app-body">
 
   <!-- SIDEBAR -->
-  <div class="sidebar">
+  <div class="sidebar sidebar-hidden">
     <div class="sidebar-tabs">
       <button class="sidebar-tab active" data-tab="all">All Pairs</button>
       <button class="sidebar-tab" data-tab="movers">&#128200; Movers</button>
@@ -688,7 +688,7 @@
           </div>
         </div>
         <!-- DEPTH CHART CONTROLS (Only visible in depth view) -->
-        <div class="ctrl-bar" id="depthChartCtrlBar">
+        <div class="ctrl-bar" id="depthChartCtrlBar" style="display:none;">
           <span class="ctrl-label">Levels</span>
           <div class="ctrl-group" id="depthChartCtrl">
             <button class="ctrl-btn" data-dlvl="5">5</button>
@@ -704,8 +704,8 @@
           <span class="depth-range-val" id="depthZoomVal">100%</span>
         </div>
         <div class="depth-wrap" id="chartAreaWrap" style="position:relative; flex:1; overflow:hidden;">
-          <canvas id="depthChart" style="display:block; width:100%; height:100%;"></canvas>
-          <div id="tvContainer" style="display:none; width:100%; height:100%; position:absolute; top:0; left:0; background:var(--bg); z-index:10;"></div>
+          <canvas id="depthChart" style="display:none; width:100%; height:100%;"></canvas>
+          <div id="tvContainer" style="display:block; width:100%; height:100%; position:absolute; top:0; left:0; background:var(--bg); z-index:10;"></div>
         </div>
       </div>
     </div>
@@ -3114,7 +3114,7 @@ setInterval(() => {
 // ==============================================
 // HEATMAP & LIQUIDATIONS
 // ==============================================
-let currentView = 'depth';
+let currentView = 'heatmap';
 
 document.querySelectorAll('.view-tab').forEach(btn => {
   btn.addEventListener('click', (e) => {
