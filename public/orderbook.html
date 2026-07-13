@@ -1433,12 +1433,23 @@ let tvWidget = null;
 function initTVChart(sym) {
   const container = document.getElementById('tvContainer');
   if (!container) return;
-  if (tvWidget) {
-    tvWidget.remove();
-    tvWidget = null;
-  }
+  
   let symbolClean = sym.toUpperCase();
   if (!symbolClean.endsWith("USDT")) symbolClean += "USDT";
+  
+  if (tvWidget) {
+    try {
+      tvWidget.onChartReady(() => {
+        tvWidget.activeChart().setSymbol("BINANCE:" + symbolClean);
+      });
+      return; // Success, no need to recreate
+    } catch (e) {
+      console.warn("TV Chart not ready or errored, recreating...");
+      tvWidget.remove();
+      tvWidget = null;
+    }
+  }
+  
   tvWidget = new TradingView.widget({
     "autosize": true,
     "symbol": "BINANCE:" + symbolClean,
@@ -1451,6 +1462,7 @@ function initTVChart(sym) {
     "backgroundColor": "#0A0A0A",
     "gridColor": "#1A1A1A",
     "hide_top_toolbar": false,
+    "hide_side_toolbar": false,
     "hide_legend": false,
     "save_image": false,
     "container_id": "tvContainer",
@@ -1496,6 +1508,7 @@ function switchSymbol(sym) {
   heatmapHistory = [];
   
   // MEMORY LEAK FIX (Clean history on switch)
+  priceLevelStats.clear();
   priceHistory90s = [];
   tradesFreqHistory = [];
   lastIgnitionTime = 0;
@@ -3380,7 +3393,7 @@ window.addEventListener('resize', () => { renderDepthChart(); renderLiquidityPro
 // GLOBAL SMART MONEY INDEX (RISK TRADE)
 const top10Coins = ['btcusdt', 'ethusdt', 'bnbusdt', 'solusdt', 'xrpusdt', 'dogeusdt', 'adausdt', 'trxusdt', 'avaxusdt', 'linkusdt'];
 const globalStreams = top10Coins.map(c => `${c}@aggTrade`).join('/');
-const globalWsUrl = `wss://stream.binance.com:9443/stream?streams=${globalStreams}`;
+const globalWsUrl = getWsProxy(`/stream?streams=${globalStreams}`);
 
 let globalBVol = 0;
 let globalSVol = 0;
