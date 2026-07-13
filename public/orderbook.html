@@ -675,9 +675,7 @@
                 <button class="ctrl-btn" id="btnToggleTvTools" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--txt3); border:1px solid var(--border); border-radius:6px; padding:2px 8px; transition:all 0.15s;" onmouseover="this.style.color='var(--txt)'" onmouseout="this.style.color='var(--txt3)'">
                   &#9881; Tools
                 </button>
-                <button class="ctrl-btn" id="btnSaveTvLayout" style="display:flex; align-items:center; gap:4px; font-weight:bold; color:var(--accent); border:1px solid var(--accent); border-radius:6px; padding:2px 8px; transition:all 0.15s; margin-left:8px;" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background='transparent'">
-                  &#128190; Save
-                </button>
+                
               </div>
             </div>
         </div>
@@ -947,26 +945,11 @@
   document.getElementById('btnToggleTvTools')?.addEventListener('click', ()=>{
     showTvTools = !showTvTools;
     if (tvWidget) {
-      tvWidget.save(state => {
-        localStorage.setItem('tvLayout', JSON.stringify(state));
-        tvWidget.remove();
-        tvWidget = null;
-        initTVChart(currentSymbol);
-      });
+      tvWidget.remove();
+      tvWidget = null;
+      initTVChart(currentSymbol);
     } else {
       initTVChart(currentSymbol);
-    }
-  });
-
-  document.getElementById('btnSaveTvLayout')?.addEventListener('click', ()=>{
-    if (tvWidget) {
-      tvWidget.save(state => {
-        localStorage.setItem('tvLayout', JSON.stringify(state));
-        const b = document.getElementById('btnSaveTvLayout');
-        const oText = b.innerHTML;
-        b.innerHTML = '&#10004; Saved';
-        setTimeout(() => b.innerHTML = oText, 2000);
-      });
     }
   });
 
@@ -1482,7 +1465,7 @@ function initTVChart(sym) {
     "gridColor": "#1A1A1A",
     "hide_top_toolbar": !showTvTools,
     "hide_side_toolbar": !showTvTools,
-    "saved_data": localStorage.getItem('tvLayout') ? JSON.parse(localStorage.getItem('tvLayout')) : null,
+    
     "hide_legend": false,
     "save_image": false,
     "container_id": "tvContainer",
