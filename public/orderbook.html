@@ -1932,8 +1932,6 @@ function connectTradesWS(sym) {
       if (price < lastCandle.low) lastCandle.low = price;
       lwcSeries.update(lastCandle);
     }
-
-    const usdtValue = price * qty;
     
     spotVol += usdtValue;
     if (isBuy) spotCVD += usdtValue;
