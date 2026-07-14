@@ -90,26 +90,23 @@ export class WhaleTracker {
       const eventsToSave = this.events.slice(0, 1000);
       const journeysToSave = Array.from(this.journeys.values()).slice(-200);
       
-      const topVolumeNodes = Array.from(this.volumeProfile.values())
-        .filter((n: any) => {
-          if (n.firstSeen && n.firstSeen < cutoffTime) return false; // Filter volume nodes
-          const total = n.bVol + n.sVol;
-          if (total === 0) return false;
-          const imb = Math.abs(n.bVol - n.sVol) / total;
-          return imb >= 0.8; // Imbalance di atas 80% (Accumulation / Distribution ekstrem)
-        })
-        .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
-        .slice(0, 50);
-
-      this.volumeProfile.clear();
-      for (const node of topVolumeNodes) {
-        this.volumeProfile.set(node.price, node);
+      // Filter out nodes older than 24 hours directly from the map
+      for (const [price, node] of this.volumeProfile.entries()) {
+        if (node.firstSeen && node.firstSeen < cutoffTime) {
+          this.volumeProfile.delete(price);
+        }
       }
+
+      // To save to JSON, we can just save all remaining nodes, or maybe top 200 to keep JSON small
+      // We keep everything in memory for 24h so it doesn't get lost on refresh
+      const volumeNodesToSave = Array.from(this.volumeProfile.values())
+        .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
+        .slice(0, 200);
       
       fs.writeFileSync(this.dbFile, JSON.stringify({
         events: eventsToSave,
         journeys: journeysToSave,
-        volumeProfile: topVolumeNodes
+        volumeProfile: volumeNodesToSave
       }));
     } catch (e) {
       console.error('[Whale Engine] Failed to save DB', e);
@@ -120,7 +117,7 @@ export class WhaleTracker {
     return {
       events: this.events.slice(0, 200), // return last 200 to clients
       journeys: Array.from(this.journeys.values()),
-      topVolumeNodes: Array.from(this.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 50)
+      topVolumeNodes: Array.from(this.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 200)
     };
   }
 
