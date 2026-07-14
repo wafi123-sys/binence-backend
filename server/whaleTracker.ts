@@ -83,12 +83,16 @@ export class WhaleTracker {
 
   private saveHistory() {
     try {
+      const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+      const cutoffTime = Date.now() - TWENTY_FOUR_HOURS;
+
       // Keep only top 1000 events and top 200 journeys to prevent memory leak
       const eventsToSave = this.events.slice(0, 1000);
       const journeysToSave = Array.from(this.journeys.values()).slice(-200);
       
       const topVolumeNodes = Array.from(this.volumeProfile.values())
         .filter((n: any) => {
+          if (n.firstSeen && n.firstSeen < cutoffTime) return false; // Filter volume nodes
           const total = n.bVol + n.sVol;
           if (total === 0) return false;
           const imb = Math.abs(n.bVol - n.sVol) / total;
