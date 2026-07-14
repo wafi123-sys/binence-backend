@@ -122,7 +122,7 @@ export class WhaleTracker {
   }
 
   private connectBinance() {
-    const url = 'wss://stream.binance.com:9443/ws/btcusdt@aggTrade/btcusdt@depth@100ms';
+    const url = 'wss://data-stream.binance.vision/stream?streams=btcusdt@aggTrade/btcusdt@depth@100ms';
     this.ws = new WebSocket(url);
 
     this.ws.on('open', () => {
@@ -131,7 +131,8 @@ export class WhaleTracker {
 
     this.ws.on('message', (data: any) => {
       try {
-        const msg = JSON.parse(data.toString());
+        const payload = JSON.parse(data.toString());
+        const msg = payload.data ? payload.data : payload;
         this.processBinanceMessage(msg);
       } catch (e) {}
     });
