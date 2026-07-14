@@ -24,11 +24,13 @@ app.prepare().then(() => {
   let wsServer: ArenaWSServer | null = null;
 
   const server = createServer((req, res) => {
-    if (req.url === '/api/whale-history') {
+    if (req.url && req.url.startsWith('/api/whale-history')) {
+      const url = new URL(req.url, `http://${req.headers.host}`);
+      const symbol = url.searchParams.get('symbol') || 'btcusdt';
       res.setHeader('Content-Type', 'application/json');
       // Fix CORS for local dev if needed
       res.setHeader('Access-Control-Allow-Origin', '*'); 
-      res.end(JSON.stringify(whaleEngine.getHistory()));
+      res.end(JSON.stringify(whaleEngine.getHistory(symbol)));
       return;
     }
     if (req.url === '/api/market-data') {

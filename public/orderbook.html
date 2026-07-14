@@ -1593,6 +1593,11 @@ function switchSymbol(sym) {
 
   // Load saved SM state for new coin (or fresh if first visit)
   loadSmState(sym);
+  
+  // Clear old whale data and load new
+  whaleEvents = [];
+  whaleJourneys.clear();
+  loadWhaleHistory();
 
   connectTradesWS(sym);
   connectDepth(sym);
@@ -3456,7 +3461,7 @@ document.querySelectorAll('.filter-toggle').forEach(btn => {
 // ==============================================
 async function loadWhaleHistory() {
   try {
-    const res = await fetch('/api/whale-history');
+    const res = await fetch(`/api/whale-history?symbol=${currentSymbol.toLowerCase()}`);
     if (!res.ok) return;
     const data = await res.json();
     if (data.events && data.events.length > 0) {

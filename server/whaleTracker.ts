@@ -1,17 +1,16 @@
-import { WebSocket } from 'ws';
+import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// Types
 export interface WhaleEvent {
   time: number;
   price: number;
   qty: number;
   val: number;
-  side: string;
-  exec: string;
-  score: number;
+  side: 'buy' | 'sell' | 'bid' | 'ask';
+  exec: string;      
   status: string;
+  score: number;
   journeyId?: string;
 }
 
@@ -24,7 +23,7 @@ export interface JourneyTimelineEvent {
 
 export interface WhaleJourney {
   id: string;
-  side: string;
+  side: 'buy' | 'sell' | 'bid' | 'ask';
   startPrice: number;
   totalValue: number;
   orderCount: number;
@@ -36,46 +35,75 @@ export interface WhaleJourney {
   timeline: JourneyTimelineEvent[];
 }
 
+export interface CoinState {
+  events: WhaleEvent[];
+  journeys: Map<string, WhaleJourney>;
+  volumeProfile: Map<number, any>;
+  asks: Map<number, number>;
+  bids: Map<number, number>;
+}
+
 export class WhaleTracker {
   private ws: WebSocket | null = null;
-  private journeys = new Map<string, WhaleJourney>();
-  private events: WhaleEvent[] = [];
-  private volumeProfile = new Map<number, any>();
+  private states = new Map<string, CoinState>();
   
   // Storage paths
   private dbPath = path.join(__dirname, '..', 'data');
   private dbFile = path.join(__dirname, '..', 'data', 'whales.json');
 
-  // Simple state for depth monitoring
-  private asks = new Map<number, number>();
-  private bids = new Map<number, number>();
-
   constructor() {
     this.ensureDbExists();
     this.loadHistory();
     this.connectBinance();
+    
+    // Save DB periodically (every 1 minute)
+    setInterval(() => this.saveHistory(), 60000);
+  }
+
+  private getState(symbol: string): CoinState {
+    if (!this.states.has(symbol)) {
+      this.states.set(symbol, {
+        events: [],
+        journeys: new Map(),
+        volumeProfile: new Map(),
+        asks: new Map(),
+        bids: new Map()
+      });
+    }
+    return this.states.get(symbol)!;
   }
 
   private ensureDbExists() {
     if (!fs.existsSync(this.dbPath)) fs.mkdirSync(this.dbPath, { recursive: true });
-    if (!fs.existsSync(this.dbFile)) fs.writeFileSync(this.dbFile, JSON.stringify({ journeys: [], events: [] }));
+    if (!fs.existsSync(this.dbFile)) fs.writeFileSync(this.dbFile, JSON.stringify({}));
   }
 
   private loadHistory() {
     try {
-      const data = JSON.parse(fs.readFileSync(this.dbFile, 'utf8'));
-      this.events = data.events || [];
-      if (data.journeys) {
-        for (const j of data.journeys) {
-          this.journeys.set(j.id, j);
+      let data = JSON.parse(fs.readFileSync(this.dbFile, 'utf8'));
+      
+      // Backward compatibility (old format without symbols)
+      if (data.events || data.journeys || data.volumeProfile) {
+        if (!data.btcusdt && Array.isArray(data.events)) {
+          data = { 'btcusdt': data };
         }
       }
-      if (data.volumeProfile) {
-        for (const b of data.volumeProfile) {
-          this.volumeProfile.set(b.price, b);
+
+      for (const [symbol, stateData] of Object.entries(data)) {
+        const state = this.getState(symbol);
+        state.events = (stateData as any).events || [];
+        if ((stateData as any).journeys) {
+          for (const j of (stateData as any).journeys) {
+            state.journeys.set(j.id, j);
+          }
+        }
+        if ((stateData as any).volumeProfile) {
+          for (const b of (stateData as any).volumeProfile) {
+            state.volumeProfile.set(b.price, b);
+          }
         }
       }
-      console.log(`[Whale Engine] Loaded ${this.events.length} events, ${this.journeys.size} journeys, and ${this.volumeProfile.size} volume nodes from DB.`);
+      console.log(`[Whale Engine] Loaded history for ${this.states.size} coins.`);
     } catch (e) {
       console.log('[Whale Engine] Could not load history, starting fresh.');
     }
@@ -85,110 +113,130 @@ export class WhaleTracker {
     try {
       const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
       const cutoffTime = Date.now() - TWENTY_FOUR_HOURS;
+      const dataToSave: any = {};
 
-      // Keep only top 1000 events and top 200 journeys to prevent memory leak
-      const eventsToSave = this.events.slice(0, 1000);
-      const journeysToSave = Array.from(this.journeys.values()).slice(-200);
-      
-      // Filter out nodes older than 24 hours directly from the map
-      for (const [price, node] of this.volumeProfile.entries()) {
-        if (node.firstSeen && node.firstSeen < cutoffTime) {
-          this.volumeProfile.delete(price);
+      for (const [symbol, state] of this.states.entries()) {
+        const eventsToSave = state.events.slice(0, 1000);
+        const journeysToSave = Array.from(state.journeys.values()).slice(-200);
+        
+        for (const [price, node] of state.volumeProfile.entries()) {
+          if (node.firstSeen && node.firstSeen < cutoffTime) {
+            state.volumeProfile.delete(price);
+          }
         }
+
+        const volumeNodesToSave = Array.from(state.volumeProfile.values())
+          .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
+          .slice(0, 200);
+          
+        dataToSave[symbol] = {
+          events: eventsToSave,
+          journeys: journeysToSave,
+          volumeProfile: volumeNodesToSave
+        };
       }
 
-      // To save to JSON, we can just save all remaining nodes, or maybe top 200 to keep JSON small
-      // We keep everything in memory for 24h so it doesn't get lost on refresh
-      const volumeNodesToSave = Array.from(this.volumeProfile.values())
-        .sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol))
-        .slice(0, 200);
-      
-      fs.writeFileSync(this.dbFile, JSON.stringify({
-        events: eventsToSave,
-        journeys: journeysToSave,
-        volumeProfile: volumeNodesToSave
-      }));
+      fs.writeFileSync(this.dbFile, JSON.stringify(dataToSave));
     } catch (e) {
       console.error('[Whale Engine] Failed to save DB', e);
     }
   }
 
-  public getHistory() {
+  public getHistory(symbol: string = 'btcusdt') {
+    const state = this.getState(symbol.toLowerCase());
     return {
-      events: this.events.slice(0, 200), // return last 200 to clients
-      journeys: Array.from(this.journeys.values()),
-      topVolumeNodes: Array.from(this.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 200)
+      events: state.events.slice(0, 200),
+      journeys: Array.from(state.journeys.values()),
+      topVolumeNodes: Array.from(state.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 200)
     };
   }
 
-  private connectBinance() {
-    const url = 'wss://data-stream.binance.vision/stream?streams=btcusdt@aggTrade/btcusdt@depth@100ms';
-    this.ws = new WebSocket(url);
+  private async connectBinance() {
+    try {
+      console.log('[Whale Engine] Fetching Top 100 USDT pairs from Binance...');
+      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+      const data: any = await res.json();
+      
+      const symbols = data
+        .filter((d: any) => d.symbol.endsWith('USDT'))
+        .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
+        .slice(0, 100)
+        .map((d: any) => d.symbol.toLowerCase());
+      
+      if (!symbols.includes('btcusdt')) symbols.push('btcusdt');
 
-    this.ws.on('open', () => {
-      console.log('[Whale Engine] Connected to Binance, scanning for whales 24/7...');
-    });
+      const streams = symbols.map((s: string) => `${s}@aggTrade/${s}@depth@100ms`).join('/');
+      const url = `wss://data-stream.binance.vision/stream?streams=${streams}`;
 
-    this.ws.on('message', (data: any) => {
-      try {
-        const payload = JSON.parse(data.toString());
-        const msg = payload.data ? payload.data : payload;
-        this.processBinanceMessage(msg);
-      } catch (e) {}
-    });
+      this.ws = new WebSocket(url);
 
-    this.ws.on('close', () => {
-      console.log('[Whale Engine] Connection lost, reconnecting in 5s...');
+      this.ws.on('open', () => {
+        console.log(`[Whale Engine] Connected to Binance, scanning ${symbols.length} coins 24/7...`);
+      });
+
+      this.ws.on('message', (data: any) => {
+        try {
+          const payload = JSON.parse(data.toString());
+          const msg = payload.data ? payload.data : payload;
+          if (msg.s) {
+            this.processBinanceMessage(msg.s.toLowerCase(), msg);
+          }
+        } catch (e) {}
+      });
+
+      this.ws.on('close', () => {
+        console.log('[Whale Engine] Connection lost, reconnecting in 5s...');
+        setTimeout(() => this.connectBinance(), 5000);
+      });
+      
+      this.ws.on('error', () => {
+        if (this.ws) this.ws.close();
+      });
+    } catch (e) {
+      console.error('[Whale Engine] Failed to connect', e);
       setTimeout(() => this.connectBinance(), 5000);
-    });
-    
-    this.ws.on('error', () => {
-      if (this.ws) this.ws.close();
-    });
-
-    // Save DB periodically (every 1 minute)
-    setInterval(() => this.saveHistory(), 60000);
+    }
   }
 
-  private processBinanceMessage(msg: any) {
+  private processBinanceMessage(symbol: string, msg: any) {
+    const state = this.getState(symbol);
+
     if (msg.e === 'aggTrade') {
       const price = parseFloat(msg.p);
       const qty = parseFloat(msg.q);
       const val = price * qty;
       const isMaker = msg.m; // true if maker
       
-      // Volume Profile Tracking (200x Zoom - Rentang $1000)
+      // Volume Profile Tracking (200x Zoom)
       const mag = Math.pow(10, Math.floor(Math.log10(price)));
       const step200 = mag * 0.0005 * 200; 
       const bucketPrice = Math.floor(price / step200) * step200;
 
-      let bkt = this.volumeProfile.get(bucketPrice);
+      let bkt = state.volumeProfile.get(bucketPrice);
       if (!bkt) {
         bkt = { price: bucketPrice, bVol: 0, sVol: 0, bFreq: 0, sFreq: 0, firstSeen: Date.now() };
-        this.volumeProfile.set(bucketPrice, bkt);
+        state.volumeProfile.set(bucketPrice, bkt);
       }
-      if (isMaker) { // Buyer is maker = Seller initiated
+      if (isMaker) {
          bkt.sVol += qty;
          bkt.sFreq += 1;
-      } else { // Seller is maker = Buyer initiated
+      } else {
          bkt.bVol += qty;
          bkt.bFreq += 1;
       }
 
       // Whale Threshold (e.g. > $100k)
       if (val >= 100000) {
-        this.detectWhaleEvent(msg.E, price, qty, val, isMaker);
+        this.detectWhaleEvent(symbol, state, msg.E, price, qty, val, isMaker);
       }
     }
     else if (msg.e === 'depthUpdate') {
-      // Update local depth state to find spoofing/absorption
-      for (const [p, q] of msg.b) this.bids.set(parseFloat(p), parseFloat(q));
-      for (const [p, q] of msg.a) this.asks.set(parseFloat(p), parseFloat(q));
+      for (const [p, q] of msg.b) state.bids.set(parseFloat(p), parseFloat(q));
+      for (const [p, q] of msg.a) state.asks.set(parseFloat(p), parseFloat(q));
     }
   }
 
-  private detectWhaleEvent(timeMs: number, price: number, qty: number, val: number, isMaker: boolean) {
-    // 1. Determine execution logic (Market vs Limit/Iceberg)
+  private detectWhaleEvent(symbol: string, state: CoinState, timeMs: number, price: number, qty: number, val: number, isMaker: boolean) {
     let exec = 'Market';
     let status = 'AGGRESSIVE';
     let score = 70 + (val / 1000000) * 10;
@@ -203,7 +251,7 @@ export class WhaleTracker {
     if (val > 1000000) score += 15;
     score = Math.min(99, score);
 
-    const side = isMaker ? 'sell' : 'buy'; // If buyer is maker, the trade was initiated by a seller hitting the bid.
+    const side = isMaker ? 'sell' : 'buy'; 
 
     const ev: WhaleEvent = {
       time: timeMs,
@@ -216,18 +264,16 @@ export class WhaleTracker {
       score: Math.floor(score)
     };
 
-    this.processJourney(ev);
+    this.processJourney(symbol, state, ev);
   }
 
-  private processJourney(ev: WhaleEvent) {
+  private processJourney(symbol: string, state: CoinState, ev: WhaleEvent) {
     let journeyFound: WhaleJourney | null = null;
     
-    // Heuristic tracker
-    for (const [id, j] of this.journeys.entries()) {
+    for (const [id, j] of state.journeys.entries()) {
       const timeDiff = ev.time - j.lastUpdate;
       const priceDiff = Math.abs(ev.price - j.startPrice) / j.startPrice;
       
-      // Match within 5 minutes and 0.1% price
       if (j.side === ev.side && timeDiff < 300000 && priceDiff < 0.001) {
         journeyFound = j;
         break;
@@ -274,15 +320,15 @@ export class WhaleTracker {
           desc: 'Initial ' + ev.exec
         }]
       };
-      this.journeys.set(jId, newJourney);
+      state.journeys.set(jId, newJourney);
       ev.journeyId = jId;
     }
 
-    this.events.unshift(ev);
-    if (this.events.length > 2000) this.events.pop(); // keep last 2000 in memory
-    if (this.journeys.size > 500) {
-      const firstKey = this.journeys.keys().next().value;
-      this.journeys.delete(firstKey as string);
+    state.events.unshift(ev);
+    if (state.events.length > 2000) state.events.pop();
+    if (state.journeys.size > 500) {
+      const firstKey = state.journeys.keys().next().value;
+      if (firstKey) state.journeys.delete(firstKey);
     }
   }
 }
