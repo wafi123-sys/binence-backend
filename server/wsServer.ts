@@ -247,9 +247,7 @@ export class ArenaWSServer {
         }
         
         try {
-          // Note: using the same 'ws' class already imported at top of file
-          const { WebSocket: ClientWS } = require('ws');
-          const binanceWs = new ClientWS(targetUrl);
+          const binanceWs = new WebSocket(targetUrl);
           
           binanceWs.on('message', (data: any) => {
             if (ws.readyState === ws.OPEN) ws.send(data.toString());
@@ -272,7 +270,8 @@ export class ArenaWSServer {
             if (binanceWs.readyState === binanceWs.OPEN) binanceWs.close();
           });
           
-        } catch (e) {
+        } catch (e: any) {
+          console.error('Binance proxy failed to initialize:', e.message);
           ws.close();
         }
         return; // Skip standard game engine auth logic
