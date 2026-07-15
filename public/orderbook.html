@@ -737,6 +737,7 @@
           <span id="smPhaseBadge" style="font-weight:bold; font-size: 10px; padding: 3px 6px; border-radius: 4px; background: rgba(255,255,255,0.1);">--</span>
         </div>
         
+        <div id="smWarning"></div>
         <div id="aiNarratorBox" style="padding:10px; background:rgba(0,0,0,0.3); border-left:3px solid var(--accent); font-size:11px; color:var(--txt2); border-radius: 0 4px 4px 0; line-height: 1.4;">
           AI Analyzing liquidity patterns...
         </div>
@@ -1962,8 +1963,19 @@ function connectTradesWS(sym) {
     }
     
     spotVol += usdtValue;
-    if (isBuy) spotCVD += usdtValue;
-    else       spotCVD -= usdtValue;
+    
+    // Burst Rejection Filter for CVD
+    const recentTrades = tradesFreqHistory.filter(t => nowTs - t.time < 5000);
+    const baselineTrades = tradesFreqHistory.filter(t => nowTs - t.time < 60000);
+    const burstRate = recentTrades.length / 5;
+    const baselineRate = baselineTrades.length / 60;
+    const freqSpike = baselineRate > 0 ? burstRate / baselineRate : 1;
+    
+    const isBurstNoise = freqSpike > 2.5 && usdtValue < tier.whaleUsd * 0.5;
+    if (!isBurstNoise) {
+      if (isBuy) spotCVD += usdtValue;
+      else       spotCVD -= usdtValue;
+    }
 
     // Whale Radar — feed directly into Intelligence Engine
     if (usdtValue > tier.whaleUsd) {
@@ -2108,7 +2120,7 @@ function renderPriceLevelSummary(force = false) {
   }
 
   // 1. Zoom Aggregation (Adaptive based on price, keeps BTC at 5 base step)
-  const baseStep = getAdaptiveBaseStep(prevPrice || 64000);
+    const baseStep = getAdaptiveBaseStep(prevPrice || 64000);
   const step = baseStep * activeZoomLevel;
   const bucketedStats = new Map();
   
@@ -2116,7 +2128,7 @@ function renderPriceLevelSummary(force = false) {
     const bucketPrice = activeZoomLevel === 1 ? price : (Math.floor(price / step) * step);
     let bucket = bucketedStats.get(bucketPrice);
     if (!bucket) {
-      bucket = { bVol:0, sVol:0, bFreq:0, sFreq:0, whale:false, firstSeen: st.firstSeen };
+      bucket = { bVol:0, sVol:0, bFreq:0, sFreq:0, whale:false, firstSeen: st.firstSeen, relevanceScore: st.relevanceScore || 1.0 };
       bucketedStats.set(bucketPrice, bucket);
     }
     bucket.bVol += st.bVol;
@@ -2125,6 +2137,7 @@ function renderPriceLevelSummary(force = false) {
     bucket.sFreq += st.sFreq;
     bucket.whale = bucket.whale || st.whale;
     if (st.firstSeen < bucket.firstSeen) bucket.firstSeen = st.firstSeen;
+    if (st.relevanceScore > bucket.relevanceScore) bucket.relevanceScore = st.relevanceScore;
   }
   
   // 2. Applying Filters
@@ -2229,8 +2242,9 @@ function renderPriceLevelSummary(force = false) {
     const isCurrentPrice = latestTradeP >= p && latestTradeP < (p + step);
     const rowBg = isCurrentPrice ? 'rgba(79, 110, 247, 0.2)' : 'transparent';
     const currentIndicator = '';
+    const opacityStyle = (st.relevanceScore !== undefined && st.relevanceScore < 0.3) ? 'opacity: 0.4;' : '';
     
-    h += `<div style="display:grid; grid-template-columns: 18% 13% 6% 13% 6% 10% 12% 5% 17%; padding:4px 0; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center; text-align:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
+    h += `<div style="${opacityStyle} display:grid; grid-template-columns: 18% 13% 6% 13% 6% 10% 12% 5% 17%; padding:4px 0; background:${rowBg}; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center; text-align:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='${rowBg}'">
       <div style="border-right: 1px solid rgba(255,255,255,0.05); text-align:left; padding-left:10px; color:${p > latestTradeP ? 'var(--red)' : p < latestTradeP ? 'var(--green)' : 'var(--txt)'}; font-weight:bold; white-space:nowrap;">${fmtP(p)}${currentIndicator}</div>
       
       <div style="border-right: 1px solid rgba(255,255,255,0.05); position:relative; text-align:left; padding:0 4px; white-space:nowrap;">
@@ -2471,7 +2485,10 @@ function renderBigOrders() {
     if (w.status === 'ABSORBING') badgeColor = 'var(--success)';
     if (w.status === 'AGGRESSIVE') badgeColor = sideColor;
     
-    const badgeHtml = `<span class="badge-pill" style="background: ${badgeColor}22; color: ${badgeColor}; border: 1px solid ${badgeColor}44;">${w.status}</span>`;
+    let badgeHtml = `<span class="badge-pill" style="background: ${badgeColor}22; color: ${badgeColor}; border: 1px solid ${badgeColor}44;">${w.status}</span>`;
+    if (w.type === 'SPLIT_DETECTED') {
+      badgeHtml += `<span class="badge-pill" style="background: var(--txt3)22; color: var(--txt2); margin-left:4px; border: 1px dashed var(--txt3)44;">SPLIT DETECTED</span>`;
+    }
     
     h += `<div onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'" style="display:flex; padding:4px 12px; cursor:pointer; font-family:'JetBrains Mono',monospace; font-size:11px; border-bottom:1px solid rgba(255,255,255,0.02); align-items:center;" onmouseenter="this.style.background='var(--bg5)'" onmouseleave="this.style.background='transparent'">
       <div style="flex:1.2; color:var(--txt3);">${tFmt}</div>
@@ -3304,34 +3321,45 @@ function calculateSmartMoneyScore() {
     if (w.side === 'bid') bidWallVol += w.qty;
     else askWallVol += w.qty;
   }
-  if (bidWallVol > 0 || askWallVol > 0) {
-    if (bidWallVol > askWallVol * 1.5) {
-       score += 20; reasons.push("Bid Wall kuat (Layering) (+20)");
-    } else if (bidWallVol > askWallVol) {
-       score += 10; reasons.push("Bid Wall lebih besar (+10)");
-    }
-  }
   
-  // 4. Whale Buy (Spot menyerap Market Sell)
-  if (absVolBuy > 0 && absVolBuy > absVolSell * 2 && absVolBuy > 500000) {
-     score += 10; reasons.push("Whale Accumulation (Absorbing Sell) (+10)");
-  }
-  
-  // 5. Funding Rendah/Netral
+  // 4. Funding Rendah/Netral
   if (fundingRate < 0.0001 && fundingRate > -0.0005) {
      score += 10; reasons.push("Funding Rate Netral (+10)");
   } else if (fundingRate <= -0.0005) {
      score += 15; reasons.push("Funding Rate Negatif (Shorts trapped) (+15)");
   }
   
-  // 6. CVD Positif (Spot CVD > Futures CVD)
-  if (spotCVD > 0 && spotCVD > futuresCVD) {
-     score += 10; reasons.push("Spot CVD memimpin Futures CVD (+10)");
+  // COMPOSITE TRUST SCORE (Cross-check layer)
+  const signals = [];
+  
+  // Whale Monitor Signal
+  if (absVolBuy > 0 && absVolBuy > absVolSell * 2 && absVolBuy > 500000) signals.push({ source: 'WHALE', direction: 'bullish', strength: 20 });
+  else if (absVolSell > 0 && absVolSell > absVolBuy * 2 && absVolSell > 500000) signals.push({ source: 'WHALE', direction: 'bearish', strength: 20 });
+  
+  // Price Level (Wall) Signal
+  if (bidWallVol > askWallVol * 1.5) signals.push({ source: 'PRICE_LEVEL', direction: 'bullish', strength: 25 });
+  else if (askWallVol > bidWallVol * 1.5) signals.push({ source: 'PRICE_LEVEL', direction: 'bearish', strength: 25 });
+  
+  // CVD Signal
+  if (spotCVD > futuresCVD) signals.push({ source: 'CVD', direction: 'bullish', strength: 15 });
+  else if (futuresCVD > spotCVD) signals.push({ source: 'CVD', direction: 'bearish', strength: 15 });
+  
+  const bullStrength = signals.filter(s => s.direction === 'bullish').reduce((s, x) => s + x.strength, 0);
+  const bearStrength = signals.filter(s => s.direction === 'bearish').reduce((s, x) => s + x.strength, 0);
+  const agreement = (bullStrength + bearStrength) > 0 ? Math.abs(bullStrength - bearStrength) / (bullStrength + bearStrength) : 0;
+  
+  const confidence = Math.round(agreement * Math.min(100, Math.max(bullStrength, bearStrength) + score));
+  smartMoneyScore = Math.min(100, Math.max(0, confidence));
+  
+  const warningContainer = document.getElementById('smWarning');
+  if (agreement < 0.3 && (bullStrength > 10 && bearStrength > 10)) {
+     if (warningContainer) {
+         warningContainer.innerHTML = '<div style="background:var(--red)22; color:var(--red); padding:4px; font-size:10px; margin-bottom:4px; border:1px solid var(--red)44; border-radius:4px; text-align:center;">⚠️ Sinyal antar-indikator bertentangan</div>';
+     }
+  } else if (warningContainer) {
+     warningContainer.innerHTML = '';
   }
-  
-  // Ensure score is between 0 and 100
-  smartMoneyScore = Math.min(100, Math.max(0, score));
-  
+
   // Watchlist A classification
   if (smartMoneyScore >= 80 && !flaggedWatchlist) {
      flaggedWatchlist = true;
@@ -3482,7 +3510,8 @@ async function loadWhaleHistory() {
           bFreq: node.bFreq,
           sFreq: node.sFreq,
           whale: false,
-          firstSeen: node.firstSeen || Date.now()
+          firstSeen: node.firstSeen || Date.now(),
+          relevanceScore: node.relevanceScore || 1.0
         });
       }
       renderPriceLevelSummary();

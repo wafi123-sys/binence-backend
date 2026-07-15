@@ -11,6 +11,7 @@ export interface WhaleEvent {
   exec: string;      
   status: string;
   score: number;
+  type?: 'SINGLE' | 'SPLIT_DETECTED';
   journeyId?: string;
 }
 
@@ -35,19 +36,75 @@ export interface WhaleJourney {
   timeline: JourneyTimelineEvent[];
 }
 
+export interface PriceLevelMemory {
+  price: number;
+  bVol: number;
+  sVol: number;
+  bFreq: number;
+  sFreq: number;
+  firstSeen: number;
+  lastUpdated: number;
+  relevanceScore: number;
+}
+
 export interface CoinState {
   events: WhaleEvent[];
   journeys: Map<string, WhaleJourney>;
-  volumeProfile: Map<number, any>;
+  volumeProfile: Map<number, PriceLevelMemory>;
   asks: Map<number, number>;
   bids: Map<number, number>;
+  vol24h: number;
+}
+
+interface VolTier {
+  name: string;
+  minVol: number;      
+  whaleFloor: number;  
+}
+
+const VOL_TIERS: VolTier[] = [
+  { name: 'MEGA',  minVol: 1_000_000_000, whaleFloor: 150_000 },
+  { name: 'LARGE', minVol:   100_000_000, whaleFloor:  50_000 },
+  { name: 'MID',   minVol:    10_000_000, whaleFloor:  15_000 },
+  { name: 'SMALL', minVol:     1_000_000, whaleFloor:   5_000 },
+  { name: 'MICRO', minVol:             0, whaleFloor:   1_200 },
+];
+
+function getWhaleFloor(symbol: string, vol24h: number, avgTradeUsd: number): number {
+  const tier = VOL_TIERS.find(t => vol24h >= t.minVol) ?? VOL_TIERS[VOL_TIERS.length - 1];
+  return Math.max(tier.whaleFloor, avgTradeUsd * 20);
+}
+
+interface TradeFingerprint {
+  side: 'buy' | 'sell';
+  priceband: number;       
+  trades: { price: number; qty: number; time: number }[];
+  totalUsd: number;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+const activeFingerprints = new Map<string, TradeFingerprint>(); 
+const FINGERPRINT_WINDOW_MS = 45_000;   
+const FINGERPRINT_PRICE_TOLERANCE = 0.004; 
+const HALF_LIFE_MS = 6 * 60 * 60 * 1000; 
+
+function decayLevel(mem: PriceLevelMemory, now: number) {
+  const elapsed = now - mem.lastUpdated;
+  if (elapsed < 0) return;
+  const decayFactor = Math.pow(0.5, elapsed / HALF_LIFE_MS);
+  mem.bVol *= decayFactor;
+  mem.sVol *= decayFactor;
+  mem.bFreq *= decayFactor;
+  mem.sFreq *= decayFactor;
+  mem.relevanceScore = decayFactor; 
+  mem.lastUpdated = now;
 }
 
 export class WhaleTracker {
   private ws: WebSocket | null = null;
   private states = new Map<string, CoinState>();
   
-  // Storage paths
   private dbPath = path.join(__dirname, '..', 'data');
   private dbFile = path.join(__dirname, '..', 'data', 'whales.json');
 
@@ -56,7 +113,6 @@ export class WhaleTracker {
     this.loadHistory();
     this.connectBinance();
     
-    // Save DB periodically (every 1 minute)
     setInterval(() => this.saveHistory(), 60000);
   }
 
@@ -67,7 +123,8 @@ export class WhaleTracker {
         journeys: new Map(),
         volumeProfile: new Map(),
         asks: new Map(),
-        bids: new Map()
+        bids: new Map(),
+        vol24h: 0
       });
     }
     return this.states.get(symbol)!;
@@ -82,7 +139,6 @@ export class WhaleTracker {
     try {
       let data = JSON.parse(fs.readFileSync(this.dbFile, 'utf8'));
       
-      // Backward compatibility (old format without symbols)
       if (data.events || data.journeys || data.volumeProfile) {
         if (!data.btcusdt && Array.isArray(data.events)) {
           data = { 'btcusdt': data };
@@ -99,6 +155,8 @@ export class WhaleTracker {
         }
         if ((stateData as any).volumeProfile) {
           for (const b of (stateData as any).volumeProfile) {
+            b.lastUpdated = b.lastUpdated || Date.now();
+            b.relevanceScore = b.relevanceScore || 1.0;
             state.volumeProfile.set(b.price, b);
           }
         }
@@ -144,10 +202,23 @@ export class WhaleTracker {
 
   public getHistory(symbol: string = 'btcusdt') {
     const state = this.getState(symbol.toLowerCase());
+    const now = Date.now();
+    
+    // Decay all volume profiles before returning
+    const scored = [...state.volumeProfile.entries()].map(([price, mem]) => {
+      decayLevel(mem, now);
+      const rawVol = mem.bVol + mem.sVol;
+      return { price, mem, weightedVol: rawVol * mem.relevanceScore };
+    });
+    
+    const topVolumeNodes = scored.sort((a, b) => b.weightedVol - a.weightedVol)
+                                 .slice(0, 200)
+                                 .map(n => n.mem);
+
     return {
       events: state.events.slice(0, 200),
       journeys: Array.from(state.journeys.values()),
-      topVolumeNodes: Array.from(state.volumeProfile.values()).sort((a: any, b: any) => (b.bVol + b.sVol) - (a.bVol + a.sVol)).slice(0, 200)
+      topVolumeNodes
     };
   }
 
@@ -157,11 +228,18 @@ export class WhaleTracker {
       const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
       const data: any = await res.json();
       
-      const symbols = data
+      const sortedData = data
         .filter((d: any) => d.symbol.endsWith('USDT'))
-        .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume))
-        .slice(0, 100)
-        .map((d: any) => d.symbol.toLowerCase());
+        .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+        
+      const symbols = sortedData.slice(0, 100).map((d: any) => d.symbol.toLowerCase());
+      
+      // Store 24h volume
+      for (const d of sortedData) {
+        const sym = d.symbol.toLowerCase();
+        const state = this.getState(sym);
+        state.vol24h = parseFloat(d.quoteVolume);
+      }
       
       if (!symbols.includes('btcusdt')) symbols.push('btcusdt');
 
@@ -204,19 +282,21 @@ export class WhaleTracker {
     if (msg.e === 'aggTrade') {
       const price = parseFloat(msg.p);
       const qty = parseFloat(msg.q);
-      const val = price * qty;
-      const isMaker = msg.m; // true if maker
+      const isMaker = msg.m; 
+      const time = msg.E;
       
-      // Volume Profile Tracking (200x Zoom)
       const mag = Math.pow(10, Math.floor(Math.log10(price)));
       const step200 = mag * 0.0005 * 200; 
       const bucketPrice = Math.floor(price / step200) * step200;
 
       let bkt = state.volumeProfile.get(bucketPrice);
       if (!bkt) {
-        bkt = { price: bucketPrice, bVol: 0, sVol: 0, bFreq: 0, sFreq: 0, firstSeen: Date.now() };
+        bkt = { price: bucketPrice, bVol: 0, sVol: 0, bFreq: 0, sFreq: 0, firstSeen: Date.now(), lastUpdated: Date.now(), relevanceScore: 1.0 };
         state.volumeProfile.set(bucketPrice, bkt);
       }
+      
+      decayLevel(bkt, Date.now());
+
       if (isMaker) {
          bkt.sVol += qty;
          bkt.sFreq += 1;
@@ -224,11 +304,10 @@ export class WhaleTracker {
          bkt.bVol += qty;
          bkt.bFreq += 1;
       }
-
-      // Whale Threshold (e.g. > $100k)
-      if (val >= 100000) {
-        this.detectWhaleEvent(symbol, state, msg.E, price, qty, val, isMaker);
-      }
+      
+      // Ingest Trade for Anti-Order-Splitting
+      this.ingestTrade(symbol, state, price, qty, !isMaker, time, isMaker);
+      
     }
     else if (msg.e === 'depthUpdate') {
       for (const [p, q] of msg.b) state.bids.set(parseFloat(p), parseFloat(q));
@@ -236,32 +315,104 @@ export class WhaleTracker {
     }
   }
 
-  private detectWhaleEvent(symbol: string, state: CoinState, timeMs: number, price: number, qty: number, val: number, isMaker: boolean) {
-    let exec = 'Market';
-    let status = 'AGGRESSIVE';
-    let score = 70 + (val / 1000000) * 10;
-    
-    if (isMaker) {
-      exec = 'Limit Hit';
-      status = 'ABSORBING';
-      score += 10;
+  private computeSplittingSuspicion(fp: TradeFingerprint): number {
+    if (fp.trades.length < 4) return 0;
+    const intervals: number[] = [];
+    const sizes: number[] = [];
+    for (let i = 1; i < fp.trades.length; i++) {
+      intervals.push(fp.trades[i].time - fp.trades[i - 1].time);
+      sizes.push(fp.trades[i].qty);
+    }
+    const cv = (arr: number[]) => {
+      const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+      if (mean === 0) return 1;
+      const variance = arr.reduce((a, b) => a + (b - mean) ** 2, 0) / arr.length;
+      return Math.sqrt(variance) / mean; 
+    };
+    const intervalCV = cv(intervals);
+    const sizeCV = cv(sizes);
+    const uniformityScore = 1 - Math.min(1, (intervalCV + sizeCV) / 2);
+    return uniformityScore;
+  }
+
+  private calcWhaleScore(totalUsd: number, type: 'SINGLE' | 'SPLIT_DETECTED', suspicion = 0): number {
+    let score = 70;
+    score += Math.floor(totalUsd / 1_000_000) * 10;
+    if (totalUsd > 500_000) score += 10;
+    if (type === 'SPLIT_DETECTED') score += Math.round(suspicion * 10); 
+    return Math.min(99, score);
+  }
+  
+  private classifyMakerWall(priceLevel: number, initialQty: number, symbol: string, state: CoinState, isBuyWall: boolean): 'ABSORBING' | 'SUSPECTED_LAYERING' | 'PENDING' {
+    const book = isBuyWall ? state.bids : state.asks;
+    const remaining = book.get(priceLevel) || 0;
+    // Simple heuristic without full lifespan tracking
+    if (remaining > initialQty * 0.15) return 'ABSORBING';
+    if (remaining === 0) return 'SUSPECTED_LAYERING';
+    return 'PENDING';
+  }
+
+  private ingestTrade(symbol: string, state: CoinState, price: number, qty: number, isBuy: boolean, time: number, isMaker: boolean) {
+    const usd = price * qty;
+    const priceband = Math.round(price / (price * FINGERPRINT_PRICE_TOLERANCE));
+    const key = `${symbol}:${isBuy ? 'buy' : 'sell'}:${priceband}`;
+
+    let fp = activeFingerprints.get(key);
+    if (!fp || time - fp.lastSeen > FINGERPRINT_WINDOW_MS) {
+      fp = { side: isBuy ? 'buy' : 'sell', priceband, trades: [], totalUsd: 0, firstSeen: time, lastSeen: time };
+      activeFingerprints.set(key, fp);
+    }
+    fp.trades.push({ price, qty, time });
+    fp.totalUsd += usd;
+    fp.lastSeen = time;
+
+    // Use default 1000 for avgTradeUsd if not available
+    const whaleFloor = getWhaleFloor(symbol, state.vol24h, 1000); 
+
+    if (usd > whaleFloor) {
+      this.emitWhaleEvent(symbol, state, fp, 'SINGLE', usd, time, price, qty, isMaker);
+      return;
     }
 
-    if (val > 500000) score += 10;
-    if (val > 1000000) score += 15;
-    score = Math.min(99, score);
+    const suspicionScore = this.computeSplittingSuspicion(fp);
+    if (fp.totalUsd > whaleFloor && fp.trades.length >= 4 && suspicionScore > 0.6) {
+      this.emitWhaleEvent(symbol, state, fp, 'SPLIT_DETECTED', fp.totalUsd, time, price, qty, isMaker, suspicionScore);
+      activeFingerprints.delete(key); 
+    }
+  }
 
-    const side = isMaker ? 'sell' : 'buy'; 
+  private emitWhaleEvent(symbol: string, state: CoinState, fp: TradeFingerprint, type: 'SINGLE' | 'SPLIT_DETECTED', usd: number, timeMs: number, price: number, qty: number, isMaker: boolean, suspicionScore: number = 0) {
+    let exec = 'Market';
+    let status = 'AGGRESSIVE';
+    
+    // In aggTrade, if isMaker is true, the buyer is maker (Sell hitting Buy Wall) or seller is maker (Buy hitting Sell Wall)
+    // Actually, m=true means maker. If fp.side === 'sell' (taker sell), it hit a Buy Wall (maker buy).
+    if (isMaker) {
+      exec = 'Limit Hit';
+      const isBuyWall = fp.side === 'sell'; 
+      status = this.classifyMakerWall(price, qty, symbol, state, isBuyWall);
+    }
+
+    const score = this.calcWhaleScore(usd, type, suspicionScore);
+    const side = isMaker ? (fp.side === 'buy' ? 'ask' : 'bid') : fp.side; 
+    
+    // Fallback side logic mapping
+    let finalSide: 'buy' | 'sell' | 'bid' | 'ask' = 'buy';
+    if (!isMaker && fp.side === 'buy') finalSide = 'buy';
+    if (!isMaker && fp.side === 'sell') finalSide = 'sell';
+    if (isMaker && fp.side === 'sell') finalSide = 'bid'; // Sell hit buy wall
+    if (isMaker && fp.side === 'buy') finalSide = 'ask';  // Buy hit sell wall
 
     const ev: WhaleEvent = {
       time: timeMs,
       price,
-      qty,
-      val,
-      side,
+      qty: type === 'SPLIT_DETECTED' ? (usd / price) : qty,
+      val: usd,
+      side: finalSide,
       exec,
       status,
-      score: Math.floor(score)
+      score,
+      type
     };
 
     this.processJourney(symbol, state, ev);
