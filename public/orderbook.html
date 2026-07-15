@@ -3552,15 +3552,16 @@ setInterval(() => {
       return;
     }
     const score = (globalBVol / total) * 100;
+    const scoreText = ` (${score.toFixed(1)}%)`;
     
     if (score >= 60) {
-      el.textContent = 'ON';
+      el.textContent = 'ON' + scoreText;
       el.style.color = 'var(--green)';
     } else if (score <= 40) {
-      el.textContent = 'OFF';
+      el.textContent = 'OFF' + scoreText;
       el.style.color = 'var(--red)';
     } else {
-      el.textContent = 'NETRAL';
+      el.textContent = 'NETRAL' + scoreText;
       el.style.color = 'var(--txt2)';
     }
   }
