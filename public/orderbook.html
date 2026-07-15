@@ -2251,13 +2251,13 @@ function renderPriceLevelSummary(force = false) {
         <div style="position:absolute; top:0; left:4px; height:100%; width:${bPct}%; background:rgba(0,255,0,0.15);"></div>
         <span style="position:relative; z-index:1; color:var(--green);">${fmtQ(st.bVol)}</span>
       </div>
-      <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; color:var(--txt3);">${st.bFreq > 0 ? st.bFreq : '-'}</div>
+      <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; color:var(--txt3);">${st.bFreq > 0 ? Math.round(st.bFreq) : '-'}</div>
       
       <div style="border-right: 1px solid rgba(255,255,255,0.05); position:relative; text-align:left; padding:0 4px; white-space:nowrap;">
         <div style="position:absolute; top:0; left:4px; height:100%; width:${sPct}%; background:rgba(255,0,0,0.15);"></div>
         <span style="position:relative; z-index:1; color:var(--red);">${fmtQ(st.sVol)}</span>
       </div>
-      <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; color:var(--txt3);">${st.sFreq > 0 ? st.sFreq : '-'}</div>
+      <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; color:var(--txt3);">${st.sFreq > 0 ? Math.round(st.sFreq) : '-'}</div>
       
       <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; text-align:right; color:${imbColor}; white-space:nowrap;">${imbStr}</div>
       <div style="border-right: 1px solid rgba(255,255,255,0.05); padding:0 4px; text-align:right; color:${deltaColor}; white-space:nowrap;">${deltaStr}</div>

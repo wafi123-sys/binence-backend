@@ -244,7 +244,7 @@ export class WhaleTracker {
       if (!symbols.includes('btcusdt')) symbols.push('btcusdt');
 
       const streams = symbols.map((s: string) => `${s}@aggTrade/${s}@depth@100ms`).join('/');
-      const url = `wss://stream.binance.com:9443/stream?streams=${streams}`;
+      const url = `wss://data-stream.binance.vision/stream?streams=${streams}`;
 
       this.ws = new WebSocket(url);
 
