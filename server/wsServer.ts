@@ -243,7 +243,7 @@ export class ArenaWSServer {
           targetUrl = `wss://stream.binancefuture.com${binancePath}`;
         } else {
           const binancePath = url.replace('/binance-proxy', '');
-          targetUrl = `wss://data-stream.binance.vision${binancePath}`;
+          targetUrl = `wss://stream.binance.com:9443${binancePath}`;
         }
         
         try {
