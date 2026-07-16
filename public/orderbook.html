@@ -1732,7 +1732,7 @@ function connectDepth(sym) {
     .catch(e => {
       console.error('Failed to fetch depth snapshot', e);
       setConn('error');
-      setTimeout(() => { if (currentSymbol===sym) connectDepth(sym); }, 3000);
+      setTimeout(() => { if (currentSymbol===sym) connectDepth(sym); }, 15000);
     });
 
   // Connect to live diff stream (1000ms is universally stable)

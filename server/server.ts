@@ -186,17 +186,22 @@ app.prepare().then(async () => {
       return;
     }
     // ── /api/binance-rest  — Proxy ke api.binance.com ─────────────────────────
-    if (req.url && req.url.startsWith('/api/binance-rest')) {
+    if (req.url && (req.url.startsWith('/api/binance-rest') || req.url.startsWith('/api/binance-fapi'))) {
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
       if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
-      // Strip /api/binance-rest prefix, forward the rest to Binance REST API
-      const binancePath = req.url.replace('/api/binance-rest', '');
-      // Route fapi paths to fapi.binance.com (Futures API), others to data-api.binance.vision (Spot)
-      const isFutures = binancePath.startsWith('/fapi/');
-      const targetHost = isFutures ? 'fapi.binance.com' : 'data-api.binance.vision';
+      let binancePath = req.url;
+      let targetHost = 'data-api.binance.vision';
+      if (req.url.startsWith('/api/binance-fapi')) {
+        binancePath = req.url.replace('/api/binance-fapi', '');
+        targetHost = 'fapi.binance.com';
+      } else {
+        binancePath = req.url.replace('/api/binance-rest', '');
+        targetHost = binancePath.startsWith('/fapi/') ? 'fapi.binance.com' : 'data-api.binance.vision';
+      }
+      
       const targetUrl = `https://${targetHost}${binancePath}`;
       console.log(`[REST Proxy] -> ${targetUrl}`);
 
