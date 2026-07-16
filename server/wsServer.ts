@@ -100,14 +100,17 @@ export class ArenaWSServer {
   private leaderboardInterval: ReturnType<typeof setInterval> | null = null;
   private onlineUsers: Set<string> = new Set();
 
-  constructor(serverOrPort: number | import('http').Server = 3001) {
+  constructor(serverOrPortOrConfig: number | import('http').Server | import('ws').ServerOptions = 3001) {
     this.engine = new Engine(300);
     
-    if (typeof serverOrPort === 'number') {
-      this.wss = new WebSocketServer({ port: serverOrPort });
-      console.log(`[Arena WS] WebSocket server started on port ${serverOrPort}`);
+    if (typeof serverOrPortOrConfig === 'number') {
+      this.wss = new WebSocketServer({ port: serverOrPortOrConfig });
+      console.log(`[Arena WS] WebSocket server started on port ${serverOrPortOrConfig}`);
+    } else if (serverOrPortOrConfig && 'noServer' in serverOrPortOrConfig) {
+      this.wss = new WebSocketServer(serverOrPortOrConfig as import('ws').ServerOptions);
+      console.log(`[Arena WS] WebSocket server configured with noServer`);
     } else {
-      this.wss = new WebSocketServer({ server: serverOrPort });
+      this.wss = new WebSocketServer({ server: serverOrPortOrConfig as import('http').Server });
       console.log(`[Arena WS] WebSocket server attached to HTTP server`);
     }
 
@@ -116,6 +119,10 @@ export class ArenaWSServer {
     this.startHeartbeat();
     this.startLeaderboardBroadcast();
     this.engine.start();
+  }
+
+  getWss(): WebSocketServer {
+    return this.wss;
   }
 
   getEngine(): Engine {

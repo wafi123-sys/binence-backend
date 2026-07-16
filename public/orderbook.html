@@ -1220,10 +1220,14 @@ function pushWhaleEvent(ev) {
 
 // --- Proxy Helpers for ISP Block Bypass ---
 function getWsProxy(path) {
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   if (path.startsWith('/fstream/ws/')) {
-    return 'wss://fstream.binance.com' + path.replace('/fstream', '');
+    const origin = 'fstream.binance.com';
+    const stream = path.replace('/fstream', '');
+    return `${wsProtocol}//${window.location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(stream)}`;
   }
-  return 'wss://data-stream.binance.vision' + path;
+  const origin = 'data-stream.binance.vision';
+  return `${wsProtocol}//${window.location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(path)}`;
 }
 function getRestProxy(path) {
   return '/api/binance-rest' + path;

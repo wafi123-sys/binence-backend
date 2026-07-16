@@ -12,12 +12,14 @@ let activeTab = 'all';
 
 // --- Proxy Helpers for ISP Block Bypass ---
 function getWsProxy(path) {
-  const host = window.location.hostname;
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const baseUrl = host.includes('vercel.app') 
-    ? 'wss://essentially-receive-place-ebony.trycloudflare.com'
-    : `${proto}//${host}:3001`;
-  return baseUrl + '/binance-proxy' + path;
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  if (path.startsWith('/fstream/ws/')) {
+    const origin = 'fstream.binance.com';
+    const stream = path.replace('/fstream', '');
+    return `${wsProtocol}//${window.location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(stream)}`;
+  }
+  const origin = 'data-stream.binance.vision';
+  return `${wsProtocol}//${window.location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(path)}`;
 }
 function getRestProxy(path) {
   return '/api/binance-rest' + path;

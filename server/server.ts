@@ -5,6 +5,7 @@
 // ============================================================
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
 import next from 'next';
 import { ArenaWSServer } from './wsServer';
 import { WhaleTracker } from './whaleTracker';
@@ -152,8 +153,49 @@ app.prepare().then(async () => {
     handle(req, res);
   });
 
-  // Start WebSocket server attached to the SAME HTTP server (for Cloud hosting)
-  wsServer = new ArenaWSServer(server);
+  // Setup Binance WebSocket Proxy
+  const binanceProxyWss = new WebSocketServer({ noServer: true });
+  binanceProxyWss.on('connection', (ws, req) => {
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    const streamPath = url.searchParams.get('stream');
+    const origin = url.searchParams.get('origin') || 'data-stream.binance.vision';
+    if (!streamPath) {
+      ws.close();
+      return;
+    }
+    const targetUrl = `wss://${origin}${streamPath}`;
+    const binanceWs = new WebSocket(targetUrl);
+    
+    binanceWs.on('message', data => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    });
+    binanceWs.on('close', () => ws.close());
+    binanceWs.on('error', err => { ws.close(); });
+    
+    ws.on('message', data => {
+      if (binanceWs.readyState === WebSocket.OPEN) binanceWs.send(data);
+    });
+    ws.on('close', () => binanceWs.close());
+    ws.on('error', () => binanceWs.close());
+  });
+
+  // Start Arena WS with noServer
+  wsServer = new ArenaWSServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    const url = new URL(req.url || '', `http://${req.headers.host}`);
+    if (url.pathname === '/binance-proxy') {
+      binanceProxyWss.handleUpgrade(req, socket, head, ws => {
+        binanceProxyWss.emit('connection', ws, req);
+      });
+    } else {
+      if (wsServer) {
+        wsServer.getWss().handleUpgrade(req, socket, head, ws => {
+          wsServer!.getWss().emit('connection', ws, req);
+        });
+      }
+    }
+  });
 
   server.listen(nextPort, () => {
     console.log(`\n🏟️  Order Book Arena (Cloud Ready)`);
