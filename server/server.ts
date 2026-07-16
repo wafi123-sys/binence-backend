@@ -54,7 +54,7 @@ app.prepare().then(() => {
       req.on('data', chunk => { body += chunk.toString(); });
       req.on('end', async () => {
         try {
-          const { symbol = 'btcusdt', strategy = 'all', capital = 10000 } = JSON.parse(body || '{}');
+          const { symbol = 'btcusdt', strategy = 'all', capital = 10000, interval = '1m' } = JSON.parse(body || '{}');
           const sym = symbol.toLowerCase();
           const logDir = process.env.DATA_LOG_DIR || DEFAULT_LOG_DIR;
 
@@ -82,7 +82,7 @@ app.prepare().then(() => {
           const engine = new BacktestEngine(DEFAULT_EXEC);
           const results = [];
           for (const strat of strategies) {
-            const result = await engine.run(sym, timeline, strat, parseFloat(capital));
+            const result = await engine.run(sym, timeline, strat, parseFloat(capital), interval);
             // Trim equity array (don't send 100k points to browser)
             const equityThin = result.equity.filter((_, i) => i % Math.max(1, Math.floor(result.equity.length / 300)) === 0);
             results.push({ ...result, equity: equityThin });

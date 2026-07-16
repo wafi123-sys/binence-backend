@@ -43,8 +43,12 @@ export class IndicatorTracker {
   private barsSinceBelowPacC = 999;
   private barsSinceAbovePacC = 999;
   
-  private readonly INTERVAL = 60000;
+  private readonly INTERVAL: number;
   private initialized = false;
+
+  constructor(intervalMs: number = 60000) {
+    this.INTERVAL = intervalMs;
+  }
 
   public indicators: ScalpingIndicators = {
     haClose: 0, fastEMA: 0, mediumEMA: 0, pacC: 0, pacU: 0, pacL: 0,
@@ -260,9 +264,18 @@ export class BacktestEngine {
     symbol: string,
     timeline: TimelineEvent[],
     strategy: StrategyConfig,
-    startingCapital: number = 10_000
+    startingCapital: number = 10_000,
+    intervalStr: string = '1m'
   ): Promise<BacktestResult> {
     this.detector.reset();
+
+    let intervalMs = 60000;
+    if (intervalStr === '3m') intervalMs = 180000;
+    else if (intervalStr === '5m') intervalMs = 300000;
+    else if (intervalStr === '15m') intervalMs = 900000;
+    else if (intervalStr === '1h') intervalMs = 3600000;
+    else if (intervalStr === '4h') intervalMs = 14400000;
+    else if (intervalStr === '1d') intervalMs = 86400000;
 
     const sym = symbol.toLowerCase();
     const trades: BacktestTrade[] = [];
@@ -274,7 +287,7 @@ export class BacktestEngine {
     const feeRate = (this.exec.takerFeeBps / 10_000); // bps → fraction
     const slipRate = (this.exec.slippageBps / 10_000);
 
-    const indicatorTracker = new IndicatorTracker();
+    const indicatorTracker = new IndicatorTracker(intervalMs);
 
     for (const event of timeline) {
       let whaleEvent: WhaleEvent | null = null;
