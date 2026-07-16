@@ -245,12 +245,22 @@ export class ArenaWSServer {
       // BINANCE PROXY LOGIC (Bypasses ISP DPI Block in Browser)
       if (url.startsWith('/binance-proxy')) {
         let targetUrl = '';
-        if (url.startsWith('/binance-proxy/fstream/')) {
-          const binancePath = url.replace('/binance-proxy/fstream', '');
-          targetUrl = `wss://stream.binancefuture.com${binancePath}`;
-        } else {
-          const binancePath = url.replace('/binance-proxy', '');
-          targetUrl = `wss://data-stream.binance.vision${binancePath}`;
+        if (url.includes('?')) {
+           const parsedUrl = new URL('http://localhost' + url);
+           const origin = parsedUrl.searchParams.get('origin');
+           const stream = parsedUrl.searchParams.get('stream');
+           if (origin && stream) {
+               targetUrl = `wss://${origin}${stream}`;
+           }
+        }
+        if (!targetUrl) {
+           if (url.startsWith('/binance-proxy/fstream/')) {
+             const binancePath = url.replace('/binance-proxy/fstream', '');
+             targetUrl = `wss://stream.binancefuture.com${binancePath}`;
+           } else {
+             const binancePath = url.replace('/binance-proxy', '');
+             targetUrl = `wss://data-stream.binance.vision${binancePath}`;
+           }
         }
         
         try {
