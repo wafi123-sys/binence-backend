@@ -4148,7 +4148,7 @@ async function runBacktest() {
     
     // --- GRID SEARCH LOGIC ---
     if (isGridMode) {
-      document.getElementById('btTradesTbody').innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">Menguji ratusan kombinasi SL & TP... Mohon tunggu.</td></tr>`;
+      document.getElementById('btTradeLog').innerHTML = `<div style="padding: 20px; text-align: center; color: var(--txt3);">Menguji ratusan kombinasi SL & TP... Mohon tunggu.</div>`;
       const slMax = parseFloat(document.getElementById('btGridSlMax').value) || 5;
       const tpMax = parseFloat(document.getElementById('btGridTpMax').value) || 10;
       
@@ -4170,26 +4170,35 @@ async function runBacktest() {
         
         let html = '';
         data.results.forEach((r, idx) => {
-          html += `<tr style="background: ${idx===0 ? 'rgba(0,184,148,0.1)' : 'transparent'}">
-            <td>#${idx+1}</td>
-            <td>SL: ${r.slPct}% | TP: ${r.tpPct}%</td>
-            <td class="${r.metrics.totalPnL >= 0 ? 'bt-profit' : 'bt-loss'}">${r.metrics.totalPnL.toFixed(2)} USDT</td>
-            <td>${(r.metrics.winRate * 100).toFixed(1)}%</td>
-            <td>${r.metrics.profitFactor === Infinity ? 'MAX' : r.metrics.profitFactor.toFixed(2)}</td>
-            <td>${(r.metrics.maxDrawdown * 100).toFixed(2)}%</td>
-          </tr>`;
+          html += `<div class="bt-trade-row" style="grid-template-columns: 0.5fr 1.5fr 1fr 1fr 1fr 1fr; background: ${idx===0 ? 'rgba(0,184,148,0.1)' : 'transparent'}; padding: 8px 10px;">
+            <span>#${idx+1}</span>
+            <span>SL: ${r.slPct}% | TP: ${r.tpPct}%</span>
+            <span style="font-weight:700; color:${r.metrics.totalPnL >= 0 ? 'var(--green)' : 'var(--red)'}">${r.metrics.totalPnL >= 0 ? '+' : ''}${r.metrics.totalPnL.toFixed(2)} USDT</span>
+            <span style="color:${r.metrics.winRate >= 0.5 ? 'var(--green)' : 'var(--red)'}">${(r.metrics.winRate * 100).toFixed(1)}%</span>
+            <span>${r.metrics.profitFactor === Infinity ? 'MAX' : r.metrics.profitFactor.toFixed(2)}</span>
+            <span style="color:var(--red)">-${(r.metrics.maxDrawdown * 100).toFixed(2)}%</span>
+          </div>`;
         });
-        document.getElementById('btTradesTbody').innerHTML = `
-          <tr><th style="background:var(--bg5)">Rank</th><th style="background:var(--bg5)">Parameter</th><th style="background:var(--bg5)">Net PnL</th><th style="background:var(--bg5)">Win Rate</th><th style="background:var(--bg5)">Profit Factor</th><th style="background:var(--bg5)">Max DD</th></tr>
+        
+        // Hide other cards, show results
+        document.getElementById('btMetrics').innerHTML = `
+          <div class="bt-metric"><div class="bt-metric-val green">GRID SEARCH</div><div class="bt-metric-lbl">Mode</div></div>
+          <div class="bt-metric"><div class="bt-metric-val">TOP 10</div><div class="bt-metric-lbl">Combinations</div></div>
+        `;
+        document.getElementById('btTradeLog').innerHTML = `
+          <div class="bt-trade-row bt-hdr" style="grid-template-columns: 0.5fr 1.5fr 1fr 1fr 1fr 1fr; border-bottom: 1px solid var(--border);">
+            <span>Rank</span><span>Parameter</span><span>Net PnL</span><span>Win Rate</span><span>Profit Factor</span><span>Max DD</span>
+          </div>
           ${html}
         `;
-        document.getElementById('btNetPnl').innerText = 'GRID SEARCH MODE';
-        document.getElementById('btNetPnl').className = 'bt-profit';
-        document.getElementById('btWinRate').innerText = 'TOP 10';
-        document.getElementById('btTotalTrades').innerText = 'COMBINATIONS';
+        
+        const resCard = document.getElementById('btResults');
+        resCard.style.display = 'block'; resCard.classList.add('bt-anim');
+        document.getElementById('btEquityCanvas').parentElement.style.display = 'none'; // hide equity curve for grid
+        
         return;
       } catch (err) {
-        document.getElementById('btTradesTbody').innerHTML = `<tr><td colspan="6" style="color:var(--red); text-align:center;">Error: ${err.message}</td></tr>`;
+        document.getElementById('btTradeLog').innerHTML = `<div style="padding:16px;text-align:center;color:var(--red);">Error: ${err.message}</div>`;
         return;
       }
     }
