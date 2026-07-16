@@ -198,8 +198,15 @@ app.prepare().then(async () => {
       ws.close(1008, 'Missing stream parameter');
       return;
     }
-    const targetUrl = `wss://${origin}${streamPath}`;
+
+    // Use stream.binance.com:9443 as primary (more stable for server-side)
+    // Fall back to the origin param if it's already a specific host
+    const host = (origin === 'data-stream.binance.vision')
+      ? 'stream.binance.com:9443'
+      : origin;
+    const targetUrl = `wss://${host}${streamPath}`;
     console.log(`[Proxy] Connecting to: ${targetUrl}`);
+
 
     // Add browser-like headers so Binance doesn't reject the connection
     const binanceWs = new WebSocket(targetUrl, {
