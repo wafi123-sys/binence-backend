@@ -6,7 +6,7 @@
 // Supports: Verified Wall Bounce, CVD Divergence Fade, Composite Trust
 // ============================================================
 
-import { TimelineEvent, RawTradeLog, SnapshotLog, BacktestPosition, BacktestTrade, BacktestResult, ExecutionAssumptions, DEFAULT_EXEC } from './types';
+import { TimelineEvent, RawTradeLog, SnapshotLog, BacktestPosition, BacktestTrade, BacktestResult, ExecutionAssumptions, DEFAULT_EXEC, OpenPositionInfo } from './types';
 import { WhaleDetectorCore, WhaleEvent } from './whaleDetectorCore';
 
 // ─── Scalping Indicators Tracker ──────────────────────────────
@@ -383,15 +383,25 @@ export class BacktestEngine {
       equity.push({ time: event.time, value: balance + this.markToMarket(position, lastPrice) });
     }
 
-    // Close any remaining open position at last price
+    // Track any remaining open position (DON'T force-close it)
+    let openPosition: OpenPositionInfo | null = null;
     if (position && lastPrice > 0) {
-      const t = this.closePosition(position, lastPrice, timeline[timeline.length - 1].time, 'EOD', feeRate, slipRate);
-      balance += t.netPnl;
-      trades.push(t);
-      equity.push({ time: timeline[timeline.length - 1].time, value: balance });
+      const floatingPnl = this.markToMarket(position, lastPrice);
+      const cost = position.entryPrice * position.qty;
+      openPosition = {
+        side: position.side,
+        entryPrice: position.entryPrice,
+        entryTime: position.entryTime,
+        currentPrice: lastPrice,
+        floatingPnl,
+        floatingPct: cost > 0 ? (floatingPnl / cost * 100) : 0,
+        strategyName: position.strategyName,
+      };
+      // Include floating PNL in final equity point
+      equity.push({ time: timeline[timeline.length - 1].time, value: balance + floatingPnl });
     }
 
-    return this.buildResult(strategy.name, symbol, timeline, startingCapital, balance, trades, equity);
+    return this.buildResult(strategy.name, symbol, timeline, startingCapital, balance, trades, equity, openPosition);
   }
 
   // ─── Helpers ──────────────────────────────────────────────
@@ -459,7 +469,8 @@ export class BacktestEngine {
     startCap: number,
     finalBal: number,
     trades: BacktestTrade[],
-    equity: { time: number; value: number }[]
+    equity: { time: number; value: number }[],
+    openPosition: OpenPositionInfo | null = null
   ): BacktestResult {
     const wins = trades.filter(t => t.netPnl > 0);
     const losses = trades.filter(t => t.netPnl <= 0);
@@ -498,6 +509,7 @@ export class BacktestEngine {
       sharpeRatio: sharpe,
       trades,
       equity,
+      openPosition,
     };
   }
 }

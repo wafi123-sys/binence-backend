@@ -3806,10 +3806,18 @@ setInterval(() => {
         </div>
         <div id="btInboxList" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin-top:8px;"></div>
       </div>
-      <!-- ═══ TRADE LOG ═══ -->
+      <!-- ═══ POSISI AKTIF (OPEN) ═══ -->
+      <div class="bt-config-card" id="btOpenCard" style="display:none;">
+        <div class="bt-section-title" style="display:flex;align-items:center;gap:10px;">
+          <span>&#128308; Posisi Aktif (Floating)</span>
+          <span style="background:rgba(251,191,36,0.15);color:#fbbf24;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;border:1px solid rgba(251,191,36,0.4);animation:btPulse 1.5s ease-in-out infinite;">&#9679; OPEN</span>
+        </div>
+        <div id="btOpenPosition" style="margin-top:8px;"></div>
+      </div>
+      <!-- ═══ TRADE LOG (CLOSED) ═══ -->
       <div class="bt-config-card">
         <div class="bt-section-title" style="display:flex;align-items:center;gap:10px;">
-          <span>&#128203; Trade Log</span>
+          <span>&#128203; Trade Log (Tertutup)</span>
           <span id="btStatusBadge" style="display:none;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;"></span>
         </div>
         <div class="bt-trade-log">
@@ -4113,6 +4121,7 @@ async function runBacktest() {
 
     const isOrderFlow = ['wall_bounce','cvd_fade','composite','scalping_pullback','all'].includes(strategy);
     let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
+    let openPosition = null;
 
     if (isOrderFlow) {
       const apiResp = await fetch('/api/backtest', {
@@ -4125,6 +4134,7 @@ async function runBacktest() {
       if (data.status === 'no_data') throw new Error(data.message);
       
       const r = data.results[0]; // If 'all', just show first for now in UI
+      openPosition = r.openPosition || null;
       trades = r.trades.map(t => ({
         time: new Date(t.exitTime).toLocaleString('id-ID'),
         entryTime: new Date(t.entryTime).toLocaleString('id-ID'),
@@ -4202,16 +4212,77 @@ async function runBacktest() {
     res.style.display = 'block'; res.classList.add('bt-anim');
     setTimeout(() => btDrawEquity(equity, capital), 50);
 
-    // === STATUS BADGE (posisi terakhir) ===
+    // === POSISI AKTIF (OPEN) ===
+    const openCard = document.getElementById('btOpenCard');
+    const openDiv = document.getElementById('btOpenPosition');
+    if (openPosition) {
+      openCard.style.display = 'block';
+      const op = openPosition;
+      const isLong = op.side === 'long';
+      const clr = isLong ? 'var(--green)' : 'var(--red)';
+      const floatClr = op.floatingPnl >= 0 ? 'var(--green)' : 'var(--red)';
+      openDiv.innerHTML = `<div style="
+        background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(251,191,36,0.02));
+        border: 1px solid rgba(251,191,36,0.3);
+        border-left: 4px solid #fbbf24;
+        border-radius: 10px;
+        padding: 14px 16px;
+        animation: btFadeIn 0.3s ease forwards;
+      ">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:20px;color:${clr};">${isLong ? '&#9650;' : '&#9660;'}</span>
+            <span style="font-size:13px;font-weight:700;color:${clr};">${isLong ? 'LONG' : 'SHORT'}</span>
+            <span style="font-size:10px;color:var(--txt3);">${op.strategyName}</span>
+          </div>
+          <span style="
+            background:rgba(251,191,36,0.15);color:#fbbf24;
+            font-size:10px;font-weight:700;padding:3px 10px;
+            border-radius:20px;border:1px solid rgba(251,191,36,0.4);
+            animation:btPulse 1.5s ease-in-out infinite;
+          ">&#9679; MASIH BERJALAN</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px;">
+          <div>
+            <div style="font-size:9px;color:var(--txt3);text-transform:uppercase;">Entry Price</div>
+            <div style="font-size:13px;font-weight:700;color:var(--txt1);">$${op.entryPrice.toFixed(2)}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--txt3);text-transform:uppercase;">Harga Sekarang</div>
+            <div style="font-size:13px;font-weight:700;color:var(--txt1);">$${op.currentPrice.toFixed(2)}</div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--txt3);text-transform:uppercase;">Floating PNL</div>
+            <div style="font-size:13px;font-weight:700;color:${floatClr};">
+              ${op.floatingPnl >= 0 ? '+' : ''}$${op.floatingPnl.toFixed(2)}
+              <span style="font-size:10px;">(${op.floatingPct >= 0 ? '+' : ''}${op.floatingPct.toFixed(2)}%)</span>
+            </div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:var(--txt3);margin-top:8px;">
+          &#128337; Dibuka: ${new Date(op.entryTime).toLocaleString('id-ID')}
+        </div>
+      </div>`;
+    } else {
+      openCard.style.display = 'none';
+      openDiv.innerHTML = '';
+    }
+
+    // === STATUS BADGE ===
     const statusBadge = document.getElementById('btStatusBadge');
     if (trades.length > 0) {
-      const lastTrade = trades[trades.length - 1];
-      const isClosed = lastTrade.reason && lastTrade.reason !== 'OPEN';
       statusBadge.style.display = 'inline-block';
-      statusBadge.style.background = 'rgba(0,212,168,0.15)';
-      statusBadge.style.border = '1px solid rgba(0,212,168,0.4)';
-      statusBadge.style.color = 'var(--green)';
-      statusBadge.innerHTML = '&#9711; Semua Posisi Tertutup';
+      if (openPosition) {
+        statusBadge.style.background = 'rgba(251,191,36,0.15)';
+        statusBadge.style.border = '1px solid rgba(251,191,36,0.4)';
+        statusBadge.style.color = '#fbbf24';
+        statusBadge.innerHTML = `&#9679; ${trades.length} Ditutup + 1 Floating`;
+      } else {
+        statusBadge.style.background = 'rgba(0,212,168,0.15)';
+        statusBadge.style.border = '1px solid rgba(0,212,168,0.4)';
+        statusBadge.style.color = 'var(--green)';
+        statusBadge.innerHTML = '&#9711; Semua Posisi Tertutup';
+      }
     } else {
       statusBadge.style.display = 'none';
     }
@@ -4220,10 +4291,47 @@ async function runBacktest() {
     const inboxCard = document.getElementById('btInboxCard');
     const inboxList = document.getElementById('btInboxList');
     const inboxBadge = document.getElementById('btInboxBadge');
-    if (trades.length > 0) {
+    const totalSignals = trades.length + (openPosition ? 1 : 0);
+    if (totalSignals > 0) {
       inboxCard.style.display = 'block';
-      inboxBadge.textContent = `${trades.length} Sinyal`;
-      inboxList.innerHTML = trades.map((t, i) => {
+      inboxBadge.textContent = `${totalSignals} Sinyal`;
+      let inboxHtml = '';
+
+      // Sinyal OPEN (jika ada) — di atas
+      if (openPosition) {
+        const op = openPosition;
+        const isLong = op.side === 'long';
+        const clr = isLong ? 'var(--green)' : 'var(--red)';
+        const floatClr = op.floatingPnl >= 0 ? 'var(--green)' : 'var(--red)';
+        inboxHtml += `<div style="
+          display:flex;align-items:flex-start;gap:10px;
+          background:rgba(251,191,36,0.06);
+          border:1px solid rgba(251,191,36,0.25);
+          border-left:3px solid #fbbf24;
+          border-radius:8px;padding:8px 12px;
+          animation:btFadeIn 0.3s ease forwards;
+        ">
+          <div style="font-size:18px;line-height:1;color:${clr};">${isLong ? '&#9650;' : '&#9660;'}</div>
+          <div style="flex:1;">
+            <div style="font-size:11px;font-weight:700;color:#fbbf24;">
+              &#128308; SINYAL ${isLong ? 'BUY (LONG)' : 'SELL (SHORT)'} &mdash; MASIH BERJALAN
+            </div>
+            <div style="font-size:10px;color:var(--txt3);margin-top:2px;">
+              &#128337; Entry: <b style="color:var(--txt1);">${new Date(op.entryTime).toLocaleString('id-ID')}</b>
+            </div>
+            <div style="font-size:10px;color:var(--txt3);">
+              Harga Entry: <b style="color:var(--txt1);">$${op.entryPrice.toFixed(2)}</b>
+              &nbsp;|&nbsp; Harga Sekarang: <b style="color:var(--txt1);">$${op.currentPrice.toFixed(2)}</b>
+            </div>
+            <div style="font-size:10px;margin-top:3px;">
+              &#9200; Floating PNL: <b style="color:${floatClr}">${op.floatingPnl>=0?'+':''}$${op.floatingPnl.toFixed(2)} (${op.floatingPct>=0?'+':''}${op.floatingPct.toFixed(2)}%)</b>
+            </div>
+          </div>
+        </div>`;
+      }
+
+      // Sinyal CLOSED
+      inboxHtml += trades.map((t, i) => {
         const isLong = t.side === 'long';
         const icon = isLong ? '&#9650;' : '&#9660;';
         const clr = isLong ? 'var(--green)' : 'var(--red)';
@@ -4235,7 +4343,7 @@ async function runBacktest() {
           border-left:3px solid ${clr};
           border-radius:8px;padding:8px 12px;
           animation:btFadeIn 0.3s ease forwards;
-          animation-delay:${i * 0.04}s;opacity:0;
+          animation-delay:${(i + (openPosition ? 1 : 0)) * 0.04}s;opacity:0;
         ">
           <div style="font-size:18px;line-height:1;color:${clr};">${icon}</div>
           <div style="flex:1;">
@@ -4257,13 +4365,14 @@ async function runBacktest() {
           </div>
         </div>`;
       }).join('');
+      inboxList.innerHTML = inboxHtml;
     } else {
       inboxCard.style.display = 'none';
     }
 
-    // === TRADE LOG (dengan kolom Status) ===
+    // === TRADE LOG — HANYA YANG SUDAH CLOSED ===
     document.getElementById('btTradeLog').innerHTML = trades.length === 0
-      ? '<div style="padding:16px;text-align:center;color:var(--txt3);font-size:12px;">Tidak ada trade. Coba ubah parameter strategi.</div>'
+      ? '<div style="padding:16px;text-align:center;color:var(--txt3);font-size:12px;">Tidak ada trade tertutup. Coba ubah parameter strategi.</div>'
       : trades.map((t, i) => {
           const reasonLabel = t.reason === 'TP' ? '<span style="color:var(--green);font-size:9px;font-weight:700;">&#9989; TP</span>'
             : t.reason === 'SL' ? '<span style="color:var(--red);font-size:9px;font-weight:700;">&#128683; SL</span>'

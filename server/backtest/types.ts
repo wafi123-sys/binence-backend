@@ -48,6 +48,16 @@ export interface BacktestTrade {
   strategyName: string;
 }
 
+export interface OpenPositionInfo {
+  side: 'long' | 'short';
+  entryPrice: number;
+  entryTime: number;
+  currentPrice: number;
+  floatingPnl: number;
+  floatingPct: number;
+  strategyName: string;
+}
+
 export interface BacktestResult {
   strategyName: string;
   symbol: string;
@@ -66,6 +76,7 @@ export interface BacktestResult {
   sharpeRatio: number;
   trades: BacktestTrade[];
   equity: { time: number; value: number }[];
+  openPosition: OpenPositionInfo | null;
 }
 
 export interface ExecutionAssumptions {
