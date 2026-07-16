@@ -225,26 +225,34 @@ export class WhaleTracker {
   }
 
   private async connectBinance() {
+    let symbols = ['btcusdt', 'ethusdt', 'solusdt', 'bnbusdt', 'xrpusdt'];
     try {
       console.log('[Whale Engine] Fetching Top 100 USDT pairs from Binance...');
-      const res = await fetch('https://api.binance.com/api/v3/ticker/24hr');
+      const res = await fetch('https://data-api.binance.vision/api/v3/ticker/24hr');
       const data: any = await res.json();
       
       const sortedData = data
-        .filter((d: any) => d.symbol.endsWith('USDT'))
-        .sort((a: any, b: any) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+        .filter((d: any) => d.symbol && d.symbol.endsWith('USDT'))
+        .sort((a: any, b: any) => parseFloat(b.quoteVolume || '0') - parseFloat(a.quoteVolume || '0'));
         
-      const symbols = sortedData.slice(0, 100).map((d: any) => d.symbol.toLowerCase());
-      
-      // Store 24h volume
-      for (const d of sortedData) {
-        const sym = d.symbol.toLowerCase();
-        const state = this.getState(sym);
-        state.vol24h = parseFloat(d.quoteVolume);
+      if (sortedData.length > 0) {
+        symbols = sortedData.slice(0, 100).map((d: any) => d.symbol.toLowerCase());
+        
+        // Store 24h volume
+        for (const d of sortedData) {
+          const sym = d.symbol.toLowerCase();
+          const state = this.getState(sym);
+          state.vol24h = parseFloat(d.quoteVolume);
+        }
       }
-      
-      if (!symbols.includes('btcusdt')) symbols.push('btcusdt');
+    } catch (err) {
+      console.error('[Whale Engine] Failed to fetch top pairs from Binance REST API:', err);
+      console.log('[Whale Engine] Using fallback top 5 pairs.');
+    }
+    
+    if (!symbols.includes('btcusdt')) symbols.push('btcusdt');
 
+    try {
       const streams = symbols.map((s: string) => `${s}@aggTrade/${s}@depth@100ms`).join('/');
       const url = `wss://data-stream.binance.vision/stream?streams=${streams}`;
 
