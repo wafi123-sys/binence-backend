@@ -10,29 +10,29 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
-      --bg: #0A0A0A;
-      --bg2: #121212;
-      --bg3: #1A1A1A;
-      --bg4: #222222;
-      --bg5: #2A2A2A;
-      --border: #383838;
-      --border2: #242424;
-      --green: #00E676;
-      --green-dim: rgba(0,230,118,0.12);
-      --red: #FF5252;
-      --red-dim: rgba(255,82,82,0.12);
-      --txt: #F4F4F4;
-      --txt2: #B3B3B3;
-      --txt3: #808080;
-      --txt4: #555555;
-      --accent: #FFD54F;
-      --accent-glow: rgba(255,213,79,0.15);
-      --gold: #FFC857;
+      --bg: #0B0E14;
+      --bg2: #151924;
+      --bg3: #1B202E;
+      --bg4: #232A3B;
+      --bg5: #2B3449;
+      --border: rgba(255, 255, 255, 0.08);
+      --border2: rgba(255, 255, 255, 0.04);
+      --green: #00B894;
+      --green-dim: rgba(0, 184, 148, 0.15);
+      --red: #FF4757;
+      --red-dim: rgba(255, 71, 87, 0.15);
+      --txt: #F1F5F9;
+      --txt2: #CBD5E1;
+      --txt3: #64748B;
+      --txt4: #475569;
+      --accent: #F3BA2F;
+      --accent-glow: rgba(243, 186, 47, 0.15);
+      --gold: #F3BA2F;
       
       --iceberg: #00D9FF;
       --spoof: #FF4FA3;
-      --success: #00C896;
-      --neutral: #94A3B8;
+      --success: #00B894;
+      --neutral: #64748B;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; }
@@ -57,9 +57,10 @@
     /* ====== HEADER ====== */
     header {
       flex-shrink: 0;
-      background: var(--bg2);
+      background: rgba(21, 25, 36, 0.85);
       border-bottom: 1px solid var(--border);
-      backdrop-filter: blur(20px);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
       z-index: 200;
       position: relative;
     }
@@ -70,11 +71,11 @@
     .logo { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
     .logo-icon {
       width: 32px; height: 32px;
-      background: var(--bg3);
+      background: linear-gradient(135deg, var(--bg3), var(--bg4));
       border: 1px solid var(--border);
       border-radius: 8px; display: flex; align-items: center; justify-content: center;
-      color: var(--txt);
-      font-size: 16px; box-shadow: 0 4px 12px rgba(255,255,255,0.05);
+      color: var(--accent);
+      font-size: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
     .logo-text {
       font-size: 16px; font-weight: 800;
@@ -234,8 +235,8 @@
       transition: background 0.15s; border-bottom: 1px solid rgba(30,42,69,0.4);
       align-items: center;
     }
-    .coin-row:hover { background: var(--bg4); }
-    .coin-row.active { background: rgba(79,110,247,0.1); border-left: 2px solid var(--accent); }
+    .coin-row:hover { background: rgba(255,255,255,0.02); }
+    .coin-row.active { background: rgba(243, 186, 47, 0.08); border-left: 2px solid var(--accent); }
 
     .coin-name { font-size: 12px; font-weight: 700; color: var(--txt); font-family: 'JetBrains Mono', monospace; }
     .coin-vol { font-size: 10px; color: var(--txt3); margin-top: 1px; }
@@ -301,7 +302,7 @@
       display: grid; grid-template-columns: 1fr 1fr 1fr;
       padding: 3.5px 10px; position: relative; cursor: pointer; transition: background 0.1s;
     }
-    .ob-row:hover { background: var(--bg5); outline: 1px solid rgba(0,136,255,0.4); z-index: 2; }
+    .ob-row:hover { background: rgba(255,255,255,0.03); outline: 1px solid var(--border); z-index: 2; }
     .ob-bar { position: absolute; top: 0; height: 100%; opacity: 0.13; pointer-events: none; transition: width 0.25s ease; }
     .ob-bar.ask { right: 0; background: var(--red); }
     .ob-bar.bid { right: 0; background: var(--green); }
@@ -416,7 +417,7 @@
       transition: all 0.15s ease; white-space: nowrap;
     }
     .ctrl-btn:hover { color: var(--txt); background: var(--bg4); }
-    .ctrl-btn.active { background: var(--bg2); color: var(--txt); border-color: var(--accent); box-shadow: 0 1px 6px rgba(0,0,0,0.2); }
+    .ctrl-btn.active { background: var(--bg3); color: var(--txt); border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
     .ctrl-sep { width: 1px; height: 16px; background: var(--border); flex-shrink: 0; }
 
     /* Depth controls below depth chart */
