@@ -4,10 +4,13 @@
 // Follows the official Next.js custom server docs pattern.
 // ============================================================
 
-import { createServer } from 'http';
+import { createServer, IncomingMessage, ServerResponse } from 'http';
 import next from 'next';
 import { ArenaWSServer } from './wsServer';
 import { WhaleTracker } from './whaleTracker';
+import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST } from './backtest/engine';
+import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
+import { DEFAULT_EXEC } from './backtest/types';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -31,6 +34,66 @@ app.prepare().then(() => {
       // Fix CORS for local dev if needed
       res.setHeader('Access-Control-Allow-Origin', '*'); 
       res.end(JSON.stringify(whaleEngine.getHistory(symbol)));
+      return;
+    }
+    // ── /api/backtest ─────────────────────────────────────────
+    if (req.url && req.url.startsWith('/api/backtest')) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+      if (req.method !== 'POST') {
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method Not Allowed. Use POST.' }));
+        return;
+      }
+
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', async () => {
+        try {
+          const { symbol = 'btcusdt', strategy = 'all', capital = 10000 } = JSON.parse(body || '{}');
+          const sym = symbol.toLowerCase();
+          const logDir = process.env.DATA_LOG_DIR || DEFAULT_LOG_DIR;
+
+          let timeline;
+          try {
+            timeline = await loadTimeline(logDir, sym);
+          } catch (e: any) {
+            res.writeHead(200);
+            res.end(JSON.stringify({
+              status: 'no_data',
+              message: `Data log untuk ${sym.toUpperCase()} belum tersedia. DataLogger baru mulai merekam — harap tunggu setidaknya 1 hari agar data terkumpul.`,
+              symbol: sym.toUpperCase(),
+              eventsExpected: 'Mulai tersedia setelah DataLogger aktif 24 jam.'
+            }));
+            return;
+          }
+
+          const strategies = strategy === 'all'        ? ALL_STRATEGIES
+            : strategy === 'wall_bounce'               ? [STRATEGY_VERIFIED_WALL_BOUNCE]
+            : strategy === 'cvd_fade'                  ? [STRATEGY_CVD_DIVERGENCE_FADE]
+            : strategy === 'composite'                 ? [STRATEGY_COMPOSITE_TRUST]
+            : ALL_STRATEGIES;
+
+          const engine = new BacktestEngine(DEFAULT_EXEC);
+          const results = [];
+          for (const strat of strategies) {
+            const result = await engine.run(sym, timeline, strat, parseFloat(capital));
+            // Trim equity array (don't send 100k points to browser)
+            const equityThin = result.equity.filter((_, i) => i % Math.max(1, Math.floor(result.equity.length / 300)) === 0);
+            results.push({ ...result, equity: equityThin });
+          }
+
+          res.writeHead(200);
+          res.end(JSON.stringify({ status: 'ok', results, eventCount: timeline.length }));
+        } catch (err: any) {
+          res.writeHead(500);
+          res.end(JSON.stringify({ error: err.message }));
+        }
+      });
       return;
     }
     if (req.url === '/api/market-data') {
