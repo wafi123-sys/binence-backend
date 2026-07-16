@@ -194,9 +194,9 @@ app.prepare().then(async () => {
 
       // Strip /api/binance-rest prefix, forward the rest to Binance REST API
       const binancePath = req.url.replace('/api/binance-rest', '');
-      // Route fapi paths to fapi.binance.com (Futures API), others to api.binance.com (Spot)
+      // Route fapi paths to fapi.binance.com (Futures API), others to data-api.binance.vision (Spot)
       const isFutures = binancePath.startsWith('/fapi/');
-      const targetHost = isFutures ? 'fapi.binance.com' : 'api.binance.com';
+      const targetHost = isFutures ? 'fapi.binance.com' : 'data-api.binance.vision';
       const targetUrl = `https://${targetHost}${binancePath}`;
       console.log(`[REST Proxy] -> ${targetUrl}`);
 
