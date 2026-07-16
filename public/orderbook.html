@@ -3739,6 +3739,7 @@ setInterval(() => {
               <option value="cvd_fade">📉 CVD Divergence Fade</option>
               <option value="composite">🎯 Composite Trust Confirmed</option>
               <option value="scalping_pullback">📈 Scalping PullBack R1.1</option>
+              <option value="liquidity_sweep">🧹 Liquidity Sweep + Reclaim</option>
               <option value="all">⚡ All Order-Flow Strategies</option>
             </optgroup>
           </select>
@@ -3791,9 +3792,21 @@ setInterval(() => {
 
       <div id="btOrderFlowBanner" style="display:none; background:linear-gradient(135deg,rgba(0,212,168,0.1),rgba(99,102,241,0.1)); border:1px solid rgba(0,212,168,0.3); border-radius:8px; padding:12px; margin:10px 0; font-size:11px; color:var(--txt3); line-height:1.6;">
         <div style="color:var(--green); font-weight:700; font-size:12px; margin-bottom:5px;">&#128202; Order-Flow Strategy Mode</div>
-        Strategi ini berjalan di backend Railway menggunakan data tick-level yang sudah direkam oleh DataLogger.<br>
-        <span style="color:rgba(255,220,0,0.8);">&#9888; Hasil akurat hanya tersedia setelah DataLogger aktif minimal 24 jam.</span>
-        <br><span style="color:var(--green);">&#10003; SL/TP, Fee, dan Latency simulasi sudah diatur otomatis oleh engine.</span>
+        Strategi ini berjalan di backend menggunakan data tick-level yang direkam oleh DataLogger.<br>
+        <span style="color:var(--green);">&#10003; SL/TP, Fee, dan Latency simulasi sudah diatur otomatis.</span>
+      </div>
+
+      <div style="margin-top: 15px; padding: 12px; border: 1px solid var(--accent); border-radius: 8px; background: rgba(243, 186, 47, 0.05);">
+        <label style="color:var(--accent); font-size:12px; cursor:pointer; font-weight: bold; display: flex; align-items: center; gap: 5px;">
+          <input type="checkbox" id="btGridMode" onchange="toggleGridMode()" /> &#9881; Enable Grid Optimizer Mode (AI)
+        </label>
+        <div id="btGridConfig" style="display:none; margin-top: 10px;">
+          <div style="font-size:11px; color:var(--txt3); margin-bottom:8px;">Batas Maksimal Pengujian (Step otomatis 1%):</div>
+          <div class="bt-row">
+            <div class="bt-field"><label class="bt-label">Max Stop Loss (%)</label><input class="bt-input" id="btGridSlMax" type="number" value="5" step="1" /></div>
+            <div class="bt-field"><label class="bt-label">Max Take Profit (%)</label><input class="bt-input" id="btGridTpMax" type="number" value="10" step="1" /></div>
+          </div>
+        </div>
       </div>
 
       <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">&#9654; Run Backtest</button>
@@ -4131,6 +4144,57 @@ async function runBacktest() {
     const slippageBps = parseInt(document.getElementById('btSlippage')?.value) || 3;
     const feeBps = feePct * 100; // Convert % to Bps
 
+    const isGridMode = document.getElementById('btGridMode')?.checked;
+    
+    // --- GRID SEARCH LOGIC ---
+    if (isGridMode) {
+      document.getElementById('btTradesTbody').innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 20px;">Menguji ratusan kombinasi SL & TP... Mohon tunggu.</td></tr>`;
+      const slMax = parseFloat(document.getElementById('btGridSlMax').value) || 5;
+      const tpMax = parseFloat(document.getElementById('btGridTpMax').value) || 10;
+      
+      const payload = {
+        symbol, strategy, capital, interval, slippageBps, feeBps,
+        slRange: { min: 0.5, max: slMax, step: 0.5 },
+        tpRange: { min: 1, max: tpMax, step: 1 }
+      };
+
+      try {
+        const apiResp = await fetch('/api/backtest/grid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await apiResp.json();
+        if (!apiResp.ok) throw new Error(data.error || 'Server error');
+        if (data.status === 'no_data') throw new Error(data.message);
+        
+        let html = '';
+        data.results.forEach((r, idx) => {
+          html += `<tr style="background: ${idx===0 ? 'rgba(0,184,148,0.1)' : 'transparent'}">
+            <td>#${idx+1}</td>
+            <td>SL: ${r.slPct}% | TP: ${r.tpPct}%</td>
+            <td class="${r.metrics.totalPnL >= 0 ? 'bt-profit' : 'bt-loss'}">${r.metrics.totalPnL.toFixed(2)} USDT</td>
+            <td>${(r.metrics.winRate * 100).toFixed(1)}%</td>
+            <td>${r.metrics.profitFactor === Infinity ? 'MAX' : r.metrics.profitFactor.toFixed(2)}</td>
+            <td>${(r.metrics.maxDrawdown * 100).toFixed(2)}%</td>
+          </tr>`;
+        });
+        document.getElementById('btTradesTbody').innerHTML = `
+          <tr><th style="background:var(--bg5)">Rank</th><th style="background:var(--bg5)">Parameter</th><th style="background:var(--bg5)">Net PnL</th><th style="background:var(--bg5)">Win Rate</th><th style="background:var(--bg5)">Profit Factor</th><th style="background:var(--bg5)">Max DD</th></tr>
+          ${html}
+        `;
+        document.getElementById('btNetPnl').innerText = 'GRID SEARCH MODE';
+        document.getElementById('btNetPnl').className = 'bt-profit';
+        document.getElementById('btWinRate').innerText = 'TOP 10';
+        document.getElementById('btTotalTrades').innerText = 'COMBINATIONS';
+        return;
+      } catch (err) {
+        document.getElementById('btTradesTbody').innerHTML = `<tr><td colspan="6" style="color:var(--red); text-align:center;">Error: ${err.message}</td></tr>`;
+        return;
+      }
+    }
+    // --- END GRID SEARCH LOGIC ---
+
     const isOrderFlow = ['wall_bounce','cvd_fade','composite','scalping_pullback','all'].includes(strategy);
     let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
     let openPosition = null;
@@ -4414,8 +4478,29 @@ async function runBacktest() {
     alert('Backtest Error: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '&#9654; Run Backtest';
+    if (document.getElementById('btGridMode')?.checked) {
+      btn.innerHTML = '&#9881; Run Grid Optimizer';
+    } else {
+      btn.innerHTML = '&#9654; Run Backtest';
+    }
   }
 }
 
+function toggleGridMode() {
+  const isChecked = document.getElementById('btGridMode').checked;
+  const configDiv = document.getElementById('btGridConfig');
+  if (isChecked) {
+    configDiv.style.display = 'block';
+    document.getElementById('btRunBtn').innerHTML = '&#9881; Run Grid Optimizer';
+    document.getElementById('btRunBtn').style.background = 'var(--accent)';
+    document.getElementById('btRunBtn').style.color = '#000';
+  } else {
+    configDiv.style.display = 'none';
+    document.getElementById('btRunBtn').innerHTML = '&#9654; Run Backtest';
+    document.getElementById('btRunBtn').style.background = 'var(--bg4)';
+    document.getElementById('btRunBtn').style.color = 'var(--txt)';
+  }
+}
 </script>
+</body>
+</html>

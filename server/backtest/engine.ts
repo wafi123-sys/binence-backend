@@ -147,17 +147,20 @@ export interface StrategySignals {
   time: number;
 }
 
-export type EntryFn = (signals: StrategySignals) => 'long' | 'short' | null;
-export type ExitFn  = (pos: BacktestPosition, signals: StrategySignals) => boolean;
+export type EntryResult = 'long' | 'short' | { side: 'long'|'short', entryPrice?: number, stopLoss?: number, takeProfit?: number, confidence?: number, criteria?: string[] };
+export type EntryFn = (signals: StrategySignals) => EntryResult | null;
+export type ExitResult = boolean | { action: 'none' | 'partial' | 'full', price?: number };
+export type ExitFn  = (pos: BacktestPosition, signals: StrategySignals) => ExitResult;
 
 export interface StrategyConfig {
   name: string;
-  slPct: number;       // stop loss %
-  tpPct: number;       // take profit %
+  slPct: number;       // stop loss % (used as fallback if dynamic is not provided)
+  tpPct: number;       // take profit % (used as fallback)
   timeLimitMs?: number; // time-stop (close position after N ms if no TP/SL)
   entryFn: EntryFn;
   exitFn?: ExitFn;     // optional custom exit logic
   allowShort?: boolean;
+  getCriteriaLog?: () => Record<string, number>;
 }
 
 // ─── Built-in Strategies ─────────────────────────────────────
@@ -238,11 +241,14 @@ export const STRATEGY_SCALPING_PULLBACK: StrategyConfig = {
   }
 };
 
+import { STRATEGY_LIQUIDITY_SWEEP, resetLiquiditySweepTracker } from './strategies/liquiditySweep';
+
 export const ALL_STRATEGIES = [
   STRATEGY_VERIFIED_WALL_BOUNCE,
   STRATEGY_CVD_DIVERGENCE_FADE,
   STRATEGY_COMPOSITE_TRUST,
   STRATEGY_SCALPING_PULLBACK,
+  STRATEGY_LIQUIDITY_SWEEP,
 ];
 
 // ─── Core Engine ─────────────────────────────────────────────
@@ -268,6 +274,7 @@ export class BacktestEngine {
     intervalStr: string = '1m'
   ): Promise<BacktestResult> {
     this.detector.reset();
+    resetLiquiditySweepTracker();
 
     let intervalMs = 60000;
     if (intervalStr === '3m') intervalMs = 180000;
@@ -338,46 +345,78 @@ export class BacktestEngine {
             lastPrice: price, 
             time: event.time 
           };
-          const entrySide = strategy.entryFn(signals);
+          const entryResult = strategy.entryFn(signals);
 
-          if (entrySide && (entrySide === 'long' || strategy.allowShort)) {
-            // Simulate latency: we use the current tick price (already past latencyMs in replay time)
-            const execPrice = price * (1 + (entrySide === 'long' ? slipRate : -slipRate));
-            const entryFee = balance * feeRate;
-            const effectiveCapital = balance - entryFee;
-            position = {
-              side: entrySide,
-              entryPrice: execPrice,
-              entryTime: event.time,
-              qty: effectiveCapital / execPrice,
-              cost: effectiveCapital,
-              strategyName: strategy.name,
-            };
+          if (entryResult) {
+            const entrySide = typeof entryResult === 'string' ? entryResult : entryResult.side;
+            if (entrySide === 'long' || strategy.allowShort) {
+              const execPrice = (typeof entryResult !== 'string' && entryResult.entryPrice) ? entryResult.entryPrice : price * (1 + (entrySide === 'long' ? slipRate : -slipRate));
+              const entryFee = balance * feeRate;
+              const effectiveCapital = balance - entryFee;
+              position = {
+                side: entrySide,
+                entryPrice: execPrice,
+                entryTime: event.time,
+                qty: effectiveCapital / execPrice,
+                cost: effectiveCapital,
+                strategyName: strategy.name,
+                dynamicSl: typeof entryResult !== 'string' ? entryResult.stopLoss : undefined,
+                dynamicTp: typeof entryResult !== 'string' ? entryResult.takeProfit : undefined,
+              };
+            }
           }
+
+        } else if (position && strategy.exitFn) {
+           // Also check custom exitFn per tick if there's a position
+           const trust = this.detector.computeCompositeTrust(sym, event.time);
+           const signals: StrategySignals = { whaleEvent, trust, indicators: indicatorTracker.indicators, lastPrice: price, time: event.time };
+           const exitRes = strategy.exitFn(position, signals);
+           if (exitRes) {
+             const action = typeof exitRes === 'boolean' ? 'full' : exitRes.action;
+             if (action === 'full') {
+               const exitPrice = typeof exitRes !== 'boolean' && exitRes.price ? exitRes.price : price;
+               const t = this.closePosition(position, exitPrice, event.time, 'Strategy', feeRate, slipRate);
+               balance += t.netPnl;
+               trades.push(t);
+               position = null;
+               equity.push({ time: event.time, value: balance });
+             } else if (action === 'partial' && !position.partialTaken) {
+               // partial exit (50%)
+               const exitPrice = typeof exitRes !== 'boolean' && exitRes.price ? exitRes.price : price;
+               const partialQty = position.qty / 2;
+               const partialCost = position.cost / 2;
+               const effExit = exitPrice * (1 + (position.side === 'long' ? -slipRate : slipRate));
+               const grossPnl = position.side === 'long' ? (effExit - position.entryPrice) * partialQty : (position.entryPrice - effExit) * partialQty;
+               const exitFee = effExit * partialQty * feeRate;
+               const netPnl = grossPnl - exitFee;
+               balance += netPnl;
+               
+               // log partial trade
+               trades.push({
+                 side: position.side,
+                 entryPrice: position.entryPrice,
+                 exitPrice: effExit,
+                 entryTime: position.entryTime,
+                 exitTime: event.time,
+                 grossPnl,
+                 netPnl,
+                 pct: (netPnl / partialCost) * 100,
+                 feePaid: exitFee,
+                 exitReason: 'TP',
+                 strategyName: position.strategyName + ' (Partial)'
+               });
+               
+               position.qty -= partialQty;
+               position.cost -= partialCost;
+               position.partialTaken = true;
+               equity.push({ time: event.time, value: balance + this.markToMarket(position, price) });
+             }
+           }
         }
 
       } else if (event.type === 'snapshot') {
         const snap = event.data as SnapshotLog;
         this.detector.ingestSnapshot(sym, snap.b, snap.a);
-
-        // Check custom exitFn (e.g. Composite Trust confidence drop)
-        if (position && strategy.exitFn) {
-          const trust = this.detector.computeCompositeTrust(sym, event.time);
-          const signals: StrategySignals = { 
-            whaleEvent: null, 
-            trust, 
-            indicators: indicatorTracker.indicators, 
-            lastPrice, 
-            time: event.time 
-          };
-          if (strategy.exitFn(position, signals)) {
-            const t = this.closePosition(position, lastPrice, event.time, 'Strategy', feeRate, slipRate);
-            balance += t.netPnl;
-            trades.push(t);
-            position = null;
-            equity.push({ time: event.time, value: balance });
-          }
-        }
       }
 
       equity.push({ time: event.time, value: balance + this.markToMarket(position, lastPrice) });
@@ -401,7 +440,7 @@ export class BacktestEngine {
       equity.push({ time: timeline[timeline.length - 1].time, value: balance + floatingPnl });
     }
 
-    return this.buildResult(strategy.name, symbol, timeline, startingCapital, balance, trades, equity, openPosition);
+    return this.buildResult(strategy, symbol, timeline, startingCapital, balance, trades, equity, openPosition);
   }
 
   // ─── Helpers ──────────────────────────────────────────────
@@ -419,13 +458,13 @@ export class BacktestEngine {
     strategy: StrategyConfig
   ): { price: number; reason: 'SL' | 'TP' } | null {
     if (pos.side === 'long') {
-      const sl = pos.entryPrice * (1 - strategy.slPct / 100);
-      const tp = pos.entryPrice * (1 + strategy.tpPct / 100);
+      const sl = pos.dynamicSl ?? (pos.entryPrice * (1 - strategy.slPct / 100));
+      const tp = pos.dynamicTp ?? (pos.entryPrice * (1 + strategy.tpPct / 100));
       if (price <= sl) return { price: sl, reason: 'SL' };
       if (price >= tp) return { price: tp, reason: 'TP' };
     } else {
-      const sl = pos.entryPrice * (1 + strategy.slPct / 100);
-      const tp = pos.entryPrice * (1 - strategy.tpPct / 100);
+      const sl = pos.dynamicSl ?? (pos.entryPrice * (1 + strategy.slPct / 100));
+      const tp = pos.dynamicTp ?? (pos.entryPrice * (1 - strategy.tpPct / 100));
       if (price >= sl) return { price: sl, reason: 'SL' };
       if (price <= tp) return { price: tp, reason: 'TP' };
     }
@@ -463,7 +502,7 @@ export class BacktestEngine {
   }
 
   private buildResult(
-    name: string,
+    strategy: StrategyConfig,
     symbol: string,
     timeline: TimelineEvent[],
     startCap: number,
@@ -492,24 +531,25 @@ export class BacktestEngine {
     }
 
     return {
-      strategyName: name,
-      symbol: symbol.toUpperCase(),
-      startTime: timeline[0]?.time ?? 0,
-      endTime: timeline[timeline.length - 1]?.time ?? 0,
+      strategyName: strategy.name,
+      symbol,
+      startTime: timeline[0]?.time || 0,
+      endTime: timeline[timeline.length - 1]?.time || 0,
       totalTrades: trades.length,
       wins: wins.length,
       losses: losses.length,
-      winRate: trades.length ? (wins.length / trades.length) * 100 : 0,
+      winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
       netReturn: finalBal - startCap,
-      netReturnPct: (finalBal - startCap) / startCap * 100,
+      netReturnPct: ((finalBal - startCap) / startCap) * 100,
       maxDrawdown: maxDD,
-      profitFactor: totalLoss > 0 ? totalWin / totalLoss : Infinity,
-      avgWin: wins.length ? totalWin / wins.length : 0,
-      avgLoss: losses.length ? totalLoss / losses.length : 0,
+      profitFactor: totalLoss === 0 ? (totalWin > 0 ? 999 : 0) : totalWin / totalLoss,
+      avgWin: wins.length > 0 ? totalWin / wins.length : 0,
+      avgLoss: losses.length > 0 ? totalLoss / losses.length : 0,
       sharpeRatio: sharpe,
       trades,
       equity,
       openPosition,
+      criteriaLog: strategy.getCriteriaLog ? strategy.getCriteriaLog() : undefined
     };
   }
 }

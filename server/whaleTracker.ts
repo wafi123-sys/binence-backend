@@ -194,6 +194,14 @@ export class WhaleTracker {
           journeys: journeysToSave,
           volumeProfile: volumeNodesToSave
         };
+
+        // Log to continuous historical file for backtesting analysis
+        if (journeysToSave.length > 0) {
+          globalDataLogger.logEvent(symbol, 'smart_money', { time: Date.now(), journeys: journeysToSave });
+        }
+        if (volumeNodesToSave.length > 0) {
+          globalDataLogger.logEvent(symbol, 'smart_levels', { time: Date.now(), levels: volumeNodesToSave });
+        }
       }
 
       fs.writeFileSync(this.dbFile, JSON.stringify(dataToSave));
@@ -446,6 +454,9 @@ export class WhaleTracker {
       score,
       type
     };
+
+    // Log to continuous historical file for backtesting
+    globalDataLogger.logEvent(symbol, 'whale', ev);
 
     this.processJourney(symbol, state, ev);
   }

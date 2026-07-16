@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { db } from './db';
 
-export type LogEventType = 'trade' | 'snapshot';
+export type LogEventType = 'trade' | 'snapshot' | 'whale' | 'smart_levels' | 'smart_money';
 
 export interface DataLoggerConfig {
   logDir: string;
@@ -61,6 +61,7 @@ export class DataLogger {
 
       const [symbol, type] = key.split('_');
 
+      let handledInDb = false;
       if (useDb) {
         try {
           if (type === 'trade') {
@@ -73,6 +74,7 @@ export class DataLogger {
             }
             const query = `INSERT INTO trades (symbol, price, qty, is_maker, trade_time, local_time) VALUES ${values.join(',')}`;
             await db.query(query, flatValues);
+            handledInDb = true;
           } else if (type === 'snapshot') {
             const values = [];
             const flatValues = [];
@@ -83,12 +85,15 @@ export class DataLogger {
             }
             const query = `INSERT INTO snapshots (symbol, bids, asks, local_time) VALUES ${values.join(',')}`;
             await db.query(query, flatValues);
+            handledInDb = true;
           }
         } catch (err) {
           console.error(`[DataLogger] DB Insert failed for ${key}:`, err);
         }
-      } else {
-        // Fallback to File Logging
+      } 
+      
+      if (!handledInDb) {
+        // Fallback to File Logging (or for types without DB tables like whale/smart_levels)
         const filename = path.join(this.logDir, `${symbol}_${type}_${today}.jsonl`);
         const lines = processingEvents.map(e => JSON.stringify(e)).join('\n') + '\n';
         fs.appendFile(filename, lines, (err) => {

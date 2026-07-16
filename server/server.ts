@@ -9,7 +9,8 @@ import { WebSocketServer, WebSocket } from 'ws';
 import next from 'next';
 import { ArenaWSServer } from './wsServer';
 import { WhaleTracker } from './whaleTracker';
-import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST, STRATEGY_SCALPING_PULLBACK } from './backtest/engine';
+import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST, STRATEGY_SCALPING_PULLBACK, STRATEGY_LIQUIDITY_SWEEP } from './backtest/engine';
+import { GridSearchRunner } from './backtest/gridSearch';
 import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
 import { DEFAULT_EXEC } from './backtest/types';
 import { initDatabase } from './db';
@@ -57,7 +58,8 @@ app.prepare().then(async () => {
       req.on('data', chunk => { body += chunk.toString(); });
       req.on('end', async () => {
         try {
-          const { symbol = 'btcusdt', strategy = 'all', capital = 10000, interval = '1m', slPct, tpPct, slippageBps, feeBps } = JSON.parse(body || '{}');
+          const bodyData = JSON.parse(body || '{}');
+          const { symbol = 'btcusdt', capital = 10000, interval = '1m', slippageBps, feeBps } = bodyData;
           const sym = symbol.toLowerCase();
           const logDir = process.env.DATA_LOG_DIR || DEFAULT_LOG_DIR;
 
@@ -68,19 +70,11 @@ app.prepare().then(async () => {
             res.writeHead(200);
             res.end(JSON.stringify({
               status: 'no_data',
-              message: `Data log untuk ${sym.toUpperCase()} belum tersedia. DataLogger baru mulai merekam — harap tunggu setidaknya 1 hari agar data terkumpul.`,
-              symbol: sym.toUpperCase(),
-              eventsExpected: 'Mulai tersedia setelah DataLogger aktif 24 jam.'
+              message: `Data log untuk ${sym.toUpperCase()} belum tersedia.`,
+              symbol: sym.toUpperCase()
             }));
             return;
           }
-
-          const strategies = strategy === 'all'        ? ALL_STRATEGIES
-            : strategy === 'wall_bounce'               ? [STRATEGY_VERIFIED_WALL_BOUNCE]
-            : strategy === 'cvd_fade'                  ? [STRATEGY_CVD_DIVERGENCE_FADE]
-            : strategy === 'composite'                 ? [STRATEGY_COMPOSITE_TRUST]
-            : strategy === 'scalping_pullback'         ? [STRATEGY_SCALPING_PULLBACK]
-            : ALL_STRATEGIES;
 
           const customExec = { ...DEFAULT_EXEC };
           if (slippageBps !== undefined) customExec.slippageBps = Number(slippageBps);
@@ -88,6 +82,37 @@ app.prepare().then(async () => {
             customExec.makerFeeBps = Number(feeBps);
             customExec.takerFeeBps = Number(feeBps);
           }
+
+          // ── GRID SEARCH ROUTE ──
+          if (req.url === '/api/backtest/grid') {
+            const { strategy = 'wall_bounce', slRange, tpRange } = bodyData;
+            const baseStrat = ALL_STRATEGIES.find(s => s.name.toLowerCase().includes(strategy.replace('_',' '))) || STRATEGY_VERIFIED_WALL_BOUNCE;
+            
+            const gridConfig = {
+              symbol: sym,
+              interval,
+              capital: parseFloat(capital),
+              baseStrategy: baseStrat,
+              execAssumptions: customExec,
+              slRange: slRange || { min: 1, max: 5, step: 1 },
+              tpRange: tpRange || { min: 2, max: 10, step: 2 }
+            };
+
+            const gridResults = await GridSearchRunner.run(gridConfig, timeline);
+            res.writeHead(200);
+            res.end(JSON.stringify({ status: 'ok', results: gridResults.slice(0, 10), eventCount: timeline.length }));
+            return;
+          }
+
+          // ── NORMAL SINGLE BACKTEST ROUTE ──
+          const { strategy = 'all', slPct, tpPct } = bodyData;
+          const strategies = strategy === 'all'        ? ALL_STRATEGIES
+            : strategy === 'wall_bounce'               ? [STRATEGY_VERIFIED_WALL_BOUNCE]
+            : strategy === 'cvd_fade'                  ? [STRATEGY_CVD_DIVERGENCE_FADE]
+            : strategy === 'composite'                 ? [STRATEGY_COMPOSITE_TRUST]
+            : strategy === 'scalping_pullback'         ? [STRATEGY_SCALPING_PULLBACK]
+            : strategy === 'liquidity_sweep'           ? [STRATEGY_LIQUIDITY_SWEEP]
+            : ALL_STRATEGIES;
 
           const engine = new BacktestEngine(customExec);
           const results = [];
@@ -97,7 +122,6 @@ app.prepare().then(async () => {
             if (tpPct !== undefined) customStrat.tpPct = Number(tpPct);
 
             const result = await engine.run(sym, timeline, customStrat, parseFloat(capital), interval);
-            // Trim equity array (don't send 100k points to browser)
             const equityThin = result.equity.filter((_, i) => i % Math.max(1, Math.floor(result.equity.length / 300)) === 0);
             results.push({ ...result, equity: equityThin });
           }

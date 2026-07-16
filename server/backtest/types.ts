@@ -32,6 +32,9 @@ export interface BacktestPosition {
   qty: number;         // qty in base currency
   cost: number;        // USDT committed
   strategyName: string;
+  partialTaken?: boolean; // For partial TP tracking
+  dynamicSl?: number;
+  dynamicTp?: number;
 }
 
 export interface BacktestTrade {
@@ -77,6 +80,7 @@ export interface BacktestResult {
   trades: BacktestTrade[];
   equity: { time: number; value: number }[];
   openPosition: OpenPositionInfo | null;
+  criteriaLog?: Record<string, number>; // Automated journal counts for failed entry criteria
 }
 
 export interface ExecutionAssumptions {
