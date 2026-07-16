@@ -3717,11 +3717,19 @@ setInterval(() => {
       <div class="bt-row">
         <div class="bt-field"><label class="bt-label">Strategy</label>
           <select class="bt-select" id="btStrategy" onchange="onBtStrategyChange()">
-            <option value="ma_cross">SMA Crossover</option>
-            <option value="ema_cross">EMA Crossover</option>
-            <option value="rsi">RSI Overbought/Oversold</option>
-            <option value="bb">Bollinger Bands</option>
-            <option value="macd">MACD</option>
+            <optgroup label="── Candle-Based Strategies ──">
+              <option value="ma_cross">SMA Crossover</option>
+              <option value="ema_cross">EMA Crossover</option>
+              <option value="rsi">RSI Overbought/Oversold</option>
+              <option value="bb">Bollinger Bands</option>
+              <option value="macd">MACD</option>
+            </optgroup>
+            <optgroup label="── Order-Flow Strategies (Live Data) ──">
+              <option value="wall_bounce">🐋 Verified Wall Bounce</option>
+              <option value="cvd_fade">📉 CVD Divergence Fade</option>
+              <option value="composite">🎯 Composite Trust Confirmed</option>
+              <option value="all">⚡ All Order-Flow Strategies</option>
+            </optgroup>
           </select>
         </div>
       </div>
@@ -3766,6 +3774,13 @@ setInterval(() => {
         </div>
       </div>
 
+      <div id="btOrderFlowBanner" style="display:none; background:linear-gradient(135deg,rgba(0,212,168,0.1),rgba(99,102,241,0.1)); border:1px solid rgba(0,212,168,0.3); border-radius:8px; padding:12px; margin:10px 0; font-size:11px; color:var(--txt3); line-height:1.6;">
+        <div style="color:var(--green); font-weight:700; font-size:12px; margin-bottom:5px;">&#128202; Order-Flow Strategy Mode</div>
+        Strategi ini berjalan di backend Railway menggunakan data tick-level yang sudah direkam oleh DataLogger.<br>
+        <span style="color:rgba(255,220,0,0.8);">&#9888; Hasil akurat hanya tersedia setelah DataLogger aktif minimal 24 jam.</span>
+        <br><span style="color:var(--green);">&#10003; SL/TP, Fee, dan Latency simulasi sudah diatur otomatis oleh engine.</span>
+      </div>
+
       <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">&#9654; Run Backtest</button>
     </div>
     <div id="btResults" style="display:none;" class="bt-anim">
@@ -3807,10 +3822,15 @@ function toggleBacktestPanel() {
 
 function onBtStrategyChange() {
   const s = document.getElementById('btStrategy').value;
-  document.getElementById('btParamMaCross').classList.toggle('visible', s === 'ma_cross' || s === 'ema_cross');
-  document.getElementById('btParamRsi').classList.toggle('visible', s === 'rsi');
-  document.getElementById('btParamBb').classList.toggle('visible', s === 'bb');
-  document.getElementById('btParamMacd').classList.toggle('visible', s === 'macd');
+  const isOrderFlow = ['wall_bounce','cvd_fade','composite','all'].includes(s);
+  // Show/hide candle-based parameter groups
+  document.getElementById('btParamMaCross').classList.toggle('visible', !isOrderFlow && (s === 'ma_cross' || s === 'ema_cross'));
+  document.getElementById('btParamRsi').classList.toggle('visible', !isOrderFlow && s === 'rsi');
+  document.getElementById('btParamBb').classList.toggle('visible', !isOrderFlow && s === 'bb');
+  document.getElementById('btParamMacd').classList.toggle('visible', !isOrderFlow && s === 'macd');
+  // Show/hide order-flow info banner
+  const banner = document.getElementById('btOrderFlowBanner');
+  if (banner) banner.style.display = isOrderFlow ? 'block' : 'none';
 }
 
 function btCalcSMA(closes, period) {
@@ -4073,41 +4093,80 @@ async function runBacktest() {
     const feePct = parseFloat(document.getElementById('btFee').value) || 0;
     const allowShorting = document.getElementById('btShorting').checked;
 
-    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error(`Binance API error ${resp.status}: symbol "${symbol}" mungkin tidak valid`);
-    const raw = await resp.json();
-    const candles = raw.map(k => ({ openTime: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
-    const closes = candles.map(c => c.close);
+    const isOrderFlow = ['wall_bounce','cvd_fade','composite','all'].includes(strategy);
+    let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
 
-    let signals;
-    if (strategy === 'ma_cross') {
-      const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
-      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
-      signals = btSignalMaCross(closes, f, s, false);
-    } else if (strategy === 'ema_cross') {
-      const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
-      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
-      signals = btSignalMaCross(closes, f, s, true);
-    } else if (strategy === 'rsi') {
-      signals = btSignalRSI(closes, +document.getElementById('btRsiPeriod').value, +document.getElementById('btRsiOversold').value, +document.getElementById('btRsiOverbought').value);
-    } else if (strategy === 'bb') {
-      signals = btSignalBB(closes, +document.getElementById('btBbPeriod').value, +document.getElementById('btBbMult').value);
-    } else if (strategy === 'macd') {
-      const f = +document.getElementById('btMacdFast').value, s = +document.getElementById('btMacdSlow').value, sig = +document.getElementById('btMacdSignal').value;
-      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
-      signals = btSignalMACD(closes, f, s, sig);
+    if (isOrderFlow) {
+      const apiResp = await fetch('https://binance-backend-production.up.railway.app/api/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol, strategy, capital })
+      });
+      const data = await apiResp.json();
+      if (!apiResp.ok) throw new Error(data.error || 'Server error');
+      if (data.status === 'no_data') throw new Error(data.message);
+      
+      const r = data.results[0]; // If 'all', just show first for now in UI
+      trades = r.trades.map(t => ({
+        time: new Date(t.exitTime).toLocaleString('id-ID'),
+        side: t.side,
+        entry: t.entryPrice,
+        exit: t.exitPrice,
+        pnl: t.netPnl,
+        pct: t.pct,
+        reason: t.exitReason
+      }));
+      equity = r.equity.map(e => e.value);
+      totalRet = r.netReturn;
+      totalRetPct = r.netReturnPct;
+      winRate = r.winRate;
+      pf = r.profitFactor;
+      maxDD = r.maxDrawdown;
+      isProfit = totalRet >= 0;
+      finalCap = capital + totalRet;
+    } else {
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`Binance API error ${resp.status}: symbol "${symbol}" mungkin tidak valid`);
+      const raw = await resp.json();
+      const candles = raw.map(k => ({ openTime: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
+      const closes = candles.map(c => c.close);
+
+      let signals;
+      if (strategy === 'ma_cross') {
+        const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
+        if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+        signals = btSignalMaCross(closes, f, s, false);
+      } else if (strategy === 'ema_cross') {
+        const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
+        if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+        signals = btSignalMaCross(closes, f, s, true);
+      } else if (strategy === 'rsi') {
+        signals = btSignalRSI(closes, +document.getElementById('btRsiPeriod').value, +document.getElementById('btRsiOversold').value, +document.getElementById('btRsiOverbought').value);
+      } else if (strategy === 'bb') {
+        signals = btSignalBB(closes, +document.getElementById('btBbPeriod').value, +document.getElementById('btBbMult').value);
+      } else if (strategy === 'macd') {
+        const f = +document.getElementById('btMacdFast').value, s = +document.getElementById('btMacdSlow').value, sig = +document.getElementById('btMacdSignal').value;
+        if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+        signals = btSignalMACD(closes, f, s, sig);
+      }
+
+      const res = btSimulate(candles, signals, capital, slPct, tpPct, feePct, allowShorting);
+      trades = res.trades;
+      equity = res.equity;
+      finalCap = res.final;
+      totalRet = finalCap - capital;
+      totalRetPct = totalRet / capital * 100;
+      
+      const wins = trades.filter(t => t.pnl > 0), losses = trades.filter(t => t.pnl <= 0);
+      winRate = trades.length ? wins.length / trades.length * 100 : 0;
+      const totalWinAmt = wins.reduce((s, t) => s + t.pnl, 0);
+      const totalLossAmt = losses.reduce((s, t) => s + t.pnl, 0);
+      pf = totalLossAmt !== 0 ? Math.abs(totalWinAmt / totalLossAmt) : Infinity;
+      maxDD = btMaxDrawdown(equity);
+      isProfit = totalRet >= 0;
     }
 
-    const { trades, equity, final } = btSimulate(candles, signals, capital, slPct, tpPct, feePct, allowShorting);
-    const totalRet = final - capital, totalRetPct = totalRet / capital * 100;
-    const wins = trades.filter(t => t.pnl > 0), losses = trades.filter(t => t.pnl <= 0);
-    const winRate = trades.length ? wins.length / trades.length * 100 : 0;
-    const totalWinAmt = wins.reduce((s, t) => s + t.pnl, 0);
-    const totalLossAmt = losses.reduce((s, t) => s + t.pnl, 0);
-    const pf = totalLossAmt !== 0 ? Math.abs(totalWinAmt / totalLossAmt) : Infinity;
-    const maxDD = btMaxDrawdown(equity);
-    const isProfit = totalRet >= 0;
     const fmtMoney = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     document.getElementById('btMetrics').innerHTML = [
