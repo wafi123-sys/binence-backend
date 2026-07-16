@@ -10,7 +10,10 @@
     "start": "tsx server/server.ts",
     "lint": "eslint",
     "tunnel": "npx cloudflared tunnel --url http://localhost:3001",
-    "dev:all": "concurrently \"npm run dev\" \"npm run tunnel\""
+    "dev:all": "concurrently \"npm run dev\" \"npm run tunnel\"",
+    "backtest": "npx ts-node -e \"require('ts-node').register({project:'tsconfig.json'}); require('./server/backtest/run-backtest')\"",
+    "backtest:btc": "npx tsx server/backtest/run-backtest.ts btcusdt all 10000",
+    "backtest:eth": "npx tsx server/backtest/run-backtest.ts ethusdt all 10000"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.1",
