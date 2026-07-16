@@ -23,6 +23,11 @@ export class DataLogger {
     }
 
     this.flushTimer = setInterval(() => this.flush(), this.flushIntervalMs);
+    
+    // Prune old files every hour
+    setInterval(() => this.pruneOldFiles(), 60 * 60 * 1000);
+    // Also prune on startup
+    this.pruneOldFiles();
   }
 
   /**
@@ -65,6 +70,43 @@ export class DataLogger {
       // Clear the buffer
       events.length = 0;
     }
+  }
+
+  /**
+   * Deletes log files that are older than 24 hours to save disk space.
+   */
+  private pruneOldFiles() {
+    if (!fs.existsSync(this.logDir)) return;
+    
+    fs.readdir(this.logDir, (err, files) => {
+      if (err) {
+        console.error('[DataLogger] Error reading log dir for pruning:', err);
+        return;
+      }
+      
+      const now = Date.now();
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+      
+      for (const file of files) {
+        if (!file.endsWith('.jsonl')) continue;
+        
+        const filePath = path.join(this.logDir, file);
+        fs.stat(filePath, (err, stats) => {
+          if (err) return;
+          
+          // Delete file if its last modification time is older than 24 hours
+          if (now - stats.mtimeMs > ONE_DAY_MS) {
+            fs.unlink(filePath, (err) => {
+              if (err) {
+                console.error(`[DataLogger] Failed to prune old file ${file}:`, err);
+              } else {
+                console.log(`[DataLogger] Pruned old log file: ${file}`);
+              }
+            });
+          }
+        });
+      }
+    });
   }
 
   public shutdown() {
