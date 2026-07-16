@@ -3728,6 +3728,7 @@ setInterval(() => {
               <option value="wall_bounce">🐋 Verified Wall Bounce</option>
               <option value="cvd_fade">📉 CVD Divergence Fade</option>
               <option value="composite">🎯 Composite Trust Confirmed</option>
+              <option value="scalping_pullback">📈 Scalping PullBack R1.1</option>
               <option value="all">⚡ All Order-Flow Strategies</option>
             </optgroup>
           </select>
@@ -4093,7 +4094,7 @@ async function runBacktest() {
     const feePct = parseFloat(document.getElementById('btFee').value) || 0;
     const allowShorting = document.getElementById('btShorting').checked;
 
-    const isOrderFlow = ['wall_bounce','cvd_fade','composite','all'].includes(strategy);
+    const isOrderFlow = ['wall_bounce','cvd_fade','composite','scalping_pullback','all'].includes(strategy);
     let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
 
     if (isOrderFlow) {

@@ -9,10 +9,136 @@
 import { TimelineEvent, RawTradeLog, SnapshotLog, BacktestPosition, BacktestTrade, BacktestResult, ExecutionAssumptions, DEFAULT_EXEC } from './types';
 import { WhaleDetectorCore, WhaleEvent } from './whaleDetectorCore';
 
+// ─── Scalping Indicators Tracker ──────────────────────────────
+export interface OHLC {
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  time: number;
+}
+
+export interface ScalpingIndicators {
+  haClose: number;
+  fastEMA: number;
+  mediumEMA: number;
+  pacC: number;
+  pacU: number;
+  pacL: number;
+  trendDirection: 1 | -1 | 0;
+  pacExitU: boolean;
+  pacExitL: boolean;
+}
+
+export class IndicatorTracker {
+  private currentCandle: OHLC | null = null;
+  private prevHA: OHLC | null = null;
+  
+  private fastEMA = 0;
+  private mediumEMA = 0;
+  private pacC = 0;
+  private pacU = 0;
+  private pacL = 0;
+
+  private barsSinceBelowPacC = 999;
+  private barsSinceAbovePacC = 999;
+  
+  private readonly INTERVAL = 60000;
+  private initialized = false;
+
+  public indicators: ScalpingIndicators = {
+    haClose: 0, fastEMA: 0, mediumEMA: 0, pacC: 0, pacU: 0, pacL: 0,
+    trendDirection: 0, pacExitU: false, pacExitL: false
+  };
+
+  public ingestPrice(price: number, time: number) {
+    const candleTime = Math.floor(time / this.INTERVAL) * this.INTERVAL;
+
+    if (!this.currentCandle) {
+      this.currentCandle = { open: price, high: price, low: price, close: price, time: candleTime };
+      return;
+    }
+
+    if (candleTime > this.currentCandle.time) {
+      this.closeCandle();
+      this.currentCandle = { open: price, high: price, low: price, close: price, time: candleTime };
+    } else {
+      this.currentCandle.close = price;
+      if (price > this.currentCandle.high) this.currentCandle.high = price;
+      if (price < this.currentCandle.low) this.currentCandle.low = price;
+    }
+  }
+
+  private closeCandle() {
+    const c = this.currentCandle!;
+    let haOpen = c.open;
+    if (this.prevHA) {
+      haOpen = (this.prevHA.open + this.prevHA.close) / 2;
+    }
+    const haClose = (c.open + c.high + c.low + c.close) / 4;
+    const haHigh = Math.max(c.high, haOpen, haClose);
+    const haLow = Math.min(c.low, haOpen, haClose);
+    
+    if (!this.initialized) {
+      this.fastEMA = haClose;
+      this.mediumEMA = haClose;
+      this.pacC = haClose;
+      this.pacU = haHigh;
+      this.pacL = haLow;
+      this.initialized = true;
+    } else {
+      this.fastEMA = this.calcEma(haClose, this.fastEMA, 89);
+      this.mediumEMA = this.calcEma(haClose, this.mediumEMA, 200);
+      this.pacC = this.calcEma(haClose, this.pacC, 34);
+      this.pacU = this.calcEma(haHigh, this.pacU, 34);
+      this.pacL = this.calcEma(haLow, this.pacL, 34);
+    }
+
+    if (haClose < this.pacC) {
+      this.barsSinceBelowPacC = 0;
+    } else {
+      this.barsSinceBelowPacC++;
+    }
+    
+    if (haClose > this.pacC) {
+      this.barsSinceAbovePacC = 0;
+    } else {
+      this.barsSinceAbovePacC++;
+    }
+
+    let trendDirection: 1 | -1 | 0 = 0;
+    if (this.fastEMA > this.mediumEMA && this.pacL > this.mediumEMA) trendDirection = 1;
+    else if (this.fastEMA < this.mediumEMA && this.pacU < this.mediumEMA) trendDirection = -1;
+
+    const pacExitU = haOpen < this.pacU && haClose > this.pacU && this.barsSinceBelowPacC <= 3;
+    const pacExitL = haOpen > this.pacL && haClose < this.pacL && this.barsSinceAbovePacC <= 3;
+
+    this.indicators = {
+      haClose,
+      fastEMA: this.fastEMA,
+      mediumEMA: this.mediumEMA,
+      pacC: this.pacC,
+      pacU: this.pacU,
+      pacL: this.pacL,
+      trendDirection,
+      pacExitU,
+      pacExitL
+    };
+
+    this.prevHA = { open: haOpen, high: haHigh, low: haLow, close: haClose, time: c.time };
+  }
+
+  private calcEma(price: number, prev: number, length: number): number {
+    const k = 2 / (length + 1);
+    return price * k + prev * (1 - k);
+  }
+}
+
 // ─── Strategy Signal Types ────────────────────────────────────
 export interface StrategySignals {
   whaleEvent: WhaleEvent | null;
   trust: ReturnType<WhaleDetectorCore['computeCompositeTrust']>;
+  indicators: ScalpingIndicators;
   lastPrice: number;
   time: number;
 }
@@ -88,10 +214,31 @@ export const STRATEGY_COMPOSITE_TRUST: StrategyConfig = {
   },
 };
 
+export const STRATEGY_SCALPING_PULLBACK: StrategyConfig = {
+  name: 'Scalping PullBack R1.1',
+  slPct: 0.5,
+  tpPct: 1.0,
+  timeLimitMs: 15 * 60 * 1000,
+  allowShort: true,
+  entryFn: (s) => {
+    // Pine Script Strategy entries without Whale Event dependency
+    if (s.indicators.trendDirection === 1 && s.indicators.pacExitU) return 'long';
+    if (s.indicators.trendDirection === -1 && s.indicators.pacExitL) return 'short';
+    return null;
+  },
+  exitFn: (pos, s) => {
+    // Exit when price crosses center of PAC channel in opposite direction
+    if (pos.side === 'long' && s.indicators.haClose < s.indicators.pacC) return true;
+    if (pos.side === 'short' && s.indicators.haClose > s.indicators.pacC) return true;
+    return false;
+  }
+};
+
 export const ALL_STRATEGIES = [
   STRATEGY_VERIFIED_WALL_BOUNCE,
   STRATEGY_CVD_DIVERGENCE_FADE,
   STRATEGY_COMPOSITE_TRUST,
+  STRATEGY_SCALPING_PULLBACK,
 ];
 
 // ─── Core Engine ─────────────────────────────────────────────
@@ -127,6 +274,8 @@ export class BacktestEngine {
     const feeRate = (this.exec.takerFeeBps / 10_000); // bps → fraction
     const slipRate = (this.exec.slippageBps / 10_000);
 
+    const indicatorTracker = new IndicatorTracker();
+
     for (const event of timeline) {
       let whaleEvent: WhaleEvent | null = null;
 
@@ -136,6 +285,8 @@ export class BacktestEngine {
         const qty   = parseFloat(raw.q);
         const time  = raw.T || raw.local_time;
         lastPrice = price;
+
+        indicatorTracker.ingestPrice(price, event.time);
 
         // Feed to detector — identical logic to live WhaleTracker
         whaleEvent = this.detector.ingestAggTrade(sym, price, qty, raw.m, time);
@@ -164,9 +315,16 @@ export class BacktestEngine {
         }
 
         // Evaluate strategy entry
-        if (!position && whaleEvent) {
+        // NOTE: Strategy Scalping Pullback uses indicators only, so we allow entry even if whaleEvent is null
+        if (!position) {
           const trust = this.detector.computeCompositeTrust(sym, event.time);
-          const signals: StrategySignals = { whaleEvent, trust, lastPrice: price, time: event.time };
+          const signals: StrategySignals = { 
+            whaleEvent, 
+            trust, 
+            indicators: indicatorTracker.indicators, 
+            lastPrice: price, 
+            time: event.time 
+          };
           const entrySide = strategy.entryFn(signals);
 
           if (entrySide && (entrySide === 'long' || strategy.allowShort)) {
@@ -192,7 +350,13 @@ export class BacktestEngine {
         // Check custom exitFn (e.g. Composite Trust confidence drop)
         if (position && strategy.exitFn) {
           const trust = this.detector.computeCompositeTrust(sym, event.time);
-          const signals: StrategySignals = { whaleEvent: null, trust, lastPrice, time: event.time };
+          const signals: StrategySignals = { 
+            whaleEvent: null, 
+            trust, 
+            indicators: indicatorTracker.indicators, 
+            lastPrice, 
+            time: event.time 
+          };
           if (strategy.exitFn(position, signals)) {
             const t = this.closePosition(position, lastPrice, event.time, 'Strategy', feeRate, slipRate);
             balance += t.netPnl;

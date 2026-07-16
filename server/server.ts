@@ -8,7 +8,7 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import next from 'next';
 import { ArenaWSServer } from './wsServer';
 import { WhaleTracker } from './whaleTracker';
-import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST } from './backtest/engine';
+import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST, STRATEGY_SCALPING_PULLBACK } from './backtest/engine';
 import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
 import { DEFAULT_EXEC } from './backtest/types';
 
@@ -76,6 +76,7 @@ app.prepare().then(() => {
             : strategy === 'wall_bounce'               ? [STRATEGY_VERIFIED_WALL_BOUNCE]
             : strategy === 'cvd_fade'                  ? [STRATEGY_CVD_DIVERGENCE_FADE]
             : strategy === 'composite'                 ? [STRATEGY_COMPOSITE_TRUST]
+            : strategy === 'scalping_pullback'         ? [STRATEGY_SCALPING_PULLBACK]
             : ALL_STRATEGIES;
 
           const engine = new BacktestEngine(DEFAULT_EXEC);
