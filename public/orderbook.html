@@ -3707,8 +3707,8 @@ setInterval(() => {
         <div class="bt-field"><label class="bt-label">Candles</label>
           <select class="bt-select" id="btLimit">
             <option value="100">100</option>
-            <option value="200" selected>200</option>
-            <option value="500">500</option>
+            <option value="200">200</option>
+            <option value="500" selected>500</option>
             <option value="1000">1000</option>
           </select>
         </div>
@@ -3721,6 +3721,7 @@ setInterval(() => {
             <option value="ema_cross">EMA Crossover</option>
             <option value="rsi">RSI Overbought/Oversold</option>
             <option value="bb">Bollinger Bands</option>
+            <option value="macd">MACD</option>
           </select>
         </div>
       </div>
@@ -3743,6 +3744,28 @@ setInterval(() => {
           <div class="bt-field"><label class="bt-label">Std Dev</label><input class="bt-input" id="btBbMult" type="number" value="2" step="0.1" /></div>
         </div>
       </div>
+      <div class="bt-param-group" id="btParamMacd">
+        <div class="bt-row" style="margin-bottom:0;">
+          <div class="bt-field"><label class="bt-label">Fast</label><input class="bt-input" id="btMacdFast" type="number" value="12" min="2" /></div>
+          <div class="bt-field"><label class="bt-label">Slow</label><input class="bt-input" id="btMacdSlow" type="number" value="26" min="2" /></div>
+          <div class="bt-field"><label class="bt-label">Signal</label><input class="bt-input" id="btMacdSignal" type="number" value="9" min="2" /></div>
+        </div>
+      </div>
+
+      <div class="bt-section-title" style="margin-top:15px;">&#9888; Risk Management & Costs</div>
+      <div class="bt-row">
+        <div class="bt-field"><label class="bt-label">Stop Loss (%)</label><input class="bt-input" id="btSl" type="number" value="2" step="0.1" /></div>
+        <div class="bt-field"><label class="bt-label">Take Profit (%)</label><input class="bt-input" id="btTp" type="number" value="4" step="0.1" /></div>
+      </div>
+      <div class="bt-row">
+        <div class="bt-field"><label class="bt-label">Fee per Trade (%)</label><input class="bt-input" id="btFee" type="number" value="0.1" step="0.01" /></div>
+        <div class="bt-field" style="justify-content: center; align-items: flex-start; padding-top: 15px;">
+          <label style="color:var(--txt); font-size:12px; cursor:pointer;">
+            <input type="checkbox" id="btShorting" style="margin-right:5px;" checked /> Allow Shorting
+          </label>
+        </div>
+      </div>
+
       <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">&#9654; Run Backtest</button>
     </div>
     <div id="btResults" style="display:none;" class="bt-anim">
@@ -3757,7 +3780,7 @@ setInterval(() => {
       <div class="bt-config-card">
         <div class="bt-section-title">&#128203; Trade Log</div>
         <div class="bt-trade-log">
-          <div class="bt-trade-row bt-hdr"><span>Time</span><span>Side</span><span>Entry</span><span>Exit</span><span>PNL</span><span>PNL%</span></div>
+          <div class="bt-trade-row bt-hdr" style="grid-template-columns: 2fr 1fr 1fr 1fr 1fr 1fr;"><span>Time</span><span>Side</span><span>Entry</span><span>Exit</span><span>PNL</span><span>%</span></div>
           <div id="btTradeLog"></div>
         </div>
       </div>
@@ -3787,6 +3810,7 @@ function onBtStrategyChange() {
   document.getElementById('btParamMaCross').classList.toggle('visible', s === 'ma_cross' || s === 'ema_cross');
   document.getElementById('btParamRsi').classList.toggle('visible', s === 'rsi');
   document.getElementById('btParamBb').classList.toggle('visible', s === 'bb');
+  document.getElementById('btParamMacd').classList.toggle('visible', s === 'macd');
 }
 
 function btCalcSMA(closes, period) {
@@ -3840,6 +3864,42 @@ function btCalcBB(closes, period, mult) {
   return { upper, lower, mid };
 }
 
+function btCalcMACD(closes, fastPeriod, slowPeriod, signalPeriod) {
+  const fastEma = btCalcEMA(closes, fastPeriod);
+  const slowEma = btCalcEMA(closes, slowPeriod);
+  const macdLine = new Array(closes.length).fill(null);
+  
+  for (let i = 0; i < closes.length; i++) {
+    if (fastEma[i] !== null && slowEma[i] !== null) {
+      macdLine[i] = fastEma[i] - slowEma[i];
+    }
+  }
+
+  // Calculate signal line (EMA of MACD line)
+  // We need to filter out nulls to seed the EMA calculation
+  const signalLine = new Array(closes.length).fill(null);
+  let firstValidIdx = macdLine.findIndex(val => val !== null);
+  if (firstValidIdx === -1 || firstValidIdx + signalPeriod > closes.length) return { macd: macdLine, signal: signalLine, hist: new Array(closes.length).fill(null) };
+  
+  let ema = macdLine.slice(firstValidIdx, firstValidIdx + signalPeriod).reduce((a, b) => a + b, 0) / signalPeriod;
+  const k = 2 / (signalPeriod + 1);
+  signalLine[firstValidIdx + signalPeriod - 1] = ema;
+  
+  for (let i = firstValidIdx + signalPeriod; i < closes.length; i++) {
+    ema = macdLine[i] * k + ema * (1 - k);
+    signalLine[i] = ema;
+  }
+
+  const hist = new Array(closes.length).fill(null);
+  for (let i = 0; i < closes.length; i++) {
+    if (macdLine[i] !== null && signalLine[i] !== null) {
+      hist[i] = macdLine[i] - signalLine[i];
+    }
+  }
+
+  return { macd: macdLine, signal: signalLine, hist };
+}
+
 function btSignalMaCross(closes, fast, slow, useEMA) {
   const fn = useEMA ? btCalcEMA : btCalcSMA;
   const fl = fn(closes, fast), sl = fn(closes, slow);
@@ -3871,28 +3931,82 @@ function btSignalBB(closes, period, mult) {
   });
 }
 
-function btSimulate(candles, signals, capital) {
+function btSignalMACD(closes, fastPeriod, slowPeriod, signalPeriod) {
+  const { hist } = btCalcMACD(closes, fastPeriod, slowPeriod, signalPeriod);
+  return closes.map((v, i) => {
+    if (hist[i] === null || hist[i-1] === null) return null;
+    if (hist[i-1] <= 0 && hist[i] > 0) return 'long';
+    if (hist[i-1] >= 0 && hist[i] < 0) return 'short';
+    return null;
+  });
+}
+
+function btSimulate(candles, signals, capital, slPct = 0, tpPct = 0, feePct = 0, allowShorting = true) {
   const trades = [], equity = [capital];
   let bal = capital, pos = null;
   const fmt = ts => new Date(ts).toLocaleDateString('id-ID', { month: 'short', day: '2-digit' });
+  const feeRate = feePct / 100;
+  
   for (let i = 1; i < candles.length; i++) {
-    const sig = signals[i], close = candles[i].close;
-    if (pos && sig && sig !== pos.side) {
-      const pnl = pos.side === 'long' ? (close - pos.entry) * pos.qty : (pos.entry - close) * pos.qty;
-      bal += pnl;
-      trades.push({ time: pos.time, side: pos.side, entry: pos.entry, exit: close, pnl, pct: pnl / pos.cost * 100 });
-      pos = null;
+    const c = candles[i];
+    let sig = signals[i];
+    if (!allowShorting && sig === 'short') sig = null;
+    
+    // Check SL/TP if in position
+    let closedThisCandle = false;
+    if (pos) {
+      let exitPrice = null;
+      let hitType = null;
+      
+      if (pos.side === 'long') {
+        const slPrice = pos.entry * (1 - slPct / 100);
+        const tpPrice = pos.entry * (1 + tpPct / 100);
+        if (slPct > 0 && c.low <= slPrice) { exitPrice = slPrice; hitType = 'SL'; }
+        else if (tpPct > 0 && c.high >= tpPrice) { exitPrice = tpPrice; hitType = 'TP'; }
+      } else {
+        const slPrice = pos.entry * (1 + slPct / 100);
+        const tpPrice = pos.entry * (1 - tpPct / 100);
+        if (slPct > 0 && c.high >= slPrice) { exitPrice = slPrice; hitType = 'SL'; }
+        else if (tpPct > 0 && c.low <= tpPrice) { exitPrice = tpPrice; hitType = 'TP'; }
+      }
+      
+      // If signal reverses before SL/TP hit, exit at close
+      if (!exitPrice && sig && sig !== pos.side) {
+        exitPrice = c.close;
+        hitType = 'Signal';
+      }
+      
+      if (exitPrice) {
+        const grossPnl = pos.side === 'long' ? (exitPrice - pos.entry) * pos.qty : (pos.entry - exitPrice) * pos.qty;
+        const exitFee = (exitPrice * pos.qty) * feeRate;
+        const netPnl = grossPnl - exitFee;
+        bal += netPnl;
+        trades.push({ time: fmt(c.openTime), side: pos.side, entry: pos.entry, exit: exitPrice, pnl: netPnl, pct: netPnl / pos.cost * 100, reason: hitType });
+        pos = null;
+        closedThisCandle = true;
+      }
     }
-    if (!pos && sig) pos = { side: sig, entry: close, time: fmt(candles[i].openTime), qty: bal / close, cost: bal };
+    
+    // Open new position
+    if (!pos && sig && (!closedThisCandle || sig !== trades[trades.length-1].side)) {
+      const entryFee = bal * feeRate;
+      bal -= entryFee; // Deduct entry fee
+      pos = { side: sig, entry: c.close, time: fmt(c.openTime), qty: bal / c.close, cost: bal + entryFee };
+    }
+    
+    // Mark to market
     let mark = bal;
-    if (pos) mark += pos.side === 'long' ? (close - pos.entry) * pos.qty : (pos.entry - close) * pos.qty;
+    if (pos) mark += pos.side === 'long' ? (c.close - pos.entry) * pos.qty : (pos.entry - c.close) * pos.qty;
     equity.push(mark);
   }
+  
   if (pos) {
     const last = candles[candles.length - 1].close;
-    const pnl = pos.side === 'long' ? (last - pos.entry) * pos.qty : (pos.entry - last) * pos.qty;
-    bal += pnl;
-    trades.push({ time: pos.time, side: pos.side, entry: pos.entry, exit: last, pnl, pct: pnl / pos.cost * 100 });
+    const grossPnl = pos.side === 'long' ? (last - pos.entry) * pos.qty : (pos.entry - last) * pos.qty;
+    const exitFee = (last * pos.qty) * feeRate;
+    const netPnl = grossPnl - exitFee;
+    bal += netPnl;
+    trades.push({ time: pos.time, side: pos.side, entry: pos.entry, exit: last, pnl: netPnl, pct: netPnl / pos.cost * 100, reason: 'EOD' });
     equity[equity.length - 1] = bal;
   }
   return { trades, equity, final: bal };
@@ -3953,6 +4067,11 @@ async function runBacktest() {
     const limit = parseInt(document.getElementById('btLimit').value);
     const capital = parseFloat(document.getElementById('btCapital').value) || 10000;
     const strategy = document.getElementById('btStrategy').value;
+    
+    const slPct = parseFloat(document.getElementById('btSl').value) || 0;
+    const tpPct = parseFloat(document.getElementById('btTp').value) || 0;
+    const feePct = parseFloat(document.getElementById('btFee').value) || 0;
+    const allowShorting = document.getElementById('btShorting').checked;
 
     const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
     const resp = await fetch(url);
@@ -3974,9 +4093,13 @@ async function runBacktest() {
       signals = btSignalRSI(closes, +document.getElementById('btRsiPeriod').value, +document.getElementById('btRsiOversold').value, +document.getElementById('btRsiOverbought').value);
     } else if (strategy === 'bb') {
       signals = btSignalBB(closes, +document.getElementById('btBbPeriod').value, +document.getElementById('btBbMult').value);
+    } else if (strategy === 'macd') {
+      const f = +document.getElementById('btMacdFast').value, s = +document.getElementById('btMacdSlow').value, sig = +document.getElementById('btMacdSignal').value;
+      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+      signals = btSignalMACD(closes, f, s, sig);
     }
 
-    const { trades, equity, final } = btSimulate(candles, signals, capital);
+    const { trades, equity, final } = btSimulate(candles, signals, capital, slPct, tpPct, feePct, allowShorting);
     const totalRet = final - capital, totalRetPct = totalRet / capital * 100;
     const wins = trades.filter(t => t.pnl > 0), losses = trades.filter(t => t.pnl <= 0);
     const winRate = trades.length ? wins.length / trades.length * 100 : 0;
@@ -4003,7 +4126,7 @@ async function runBacktest() {
     document.getElementById('btTradeLog').innerHTML = trades.length === 0
       ? '<div style="padding:16px;text-align:center;color:var(--txt3);font-size:12px;">Tidak ada trade. Coba ubah parameter strategi.</div>'
       : trades.map(t => `<div class="bt-trade-row ${t.pnl > 0 ? 'win' : 'loss'}">
-          <span style="color:var(--txt3);">${t.time}</span>
+          <span style="color:var(--txt3);">${t.time} <span style="font-size:9px;color:var(--txt3);">${t.reason ? `(${t.reason})` : ''}</span></span>
           <span class="${t.side === 'long' ? 'bt-side-long' : 'bt-side-short'}">${t.side === 'long' ? 'LONG' : 'SHORT'}</span>
           <span>${t.entry.toFixed(2)}</span>
           <span>${t.exit.toFixed(2)}</span>
