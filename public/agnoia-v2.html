@@ -578,7 +578,7 @@ const clamp = (v,mn,mx) => Math.min(Math.max(v,mn),mx);
 // ── State ────────────────────────────────────────────────────────────────────
 const S = {
   sym:'btcusdt', tf:'1m', price:0, prevPrice:0,
-  asks:[], bids:[], trades:[], candles:[], whaleEvents:[], priceLevels:[], timeline:[], journal:[], alerts:[],
+  asks:[], bids:[], trades:[], candles:[], whaleEvents:[], priceLevels:[], timeline:[], journal:[], alerts:[], liquidations:[],
   cvd:0, delta:0, buyVol:0, sellVol:0, vwapN:0, vwapD:0, vwap:0, atr:0, oi:0, oiPrev:0, funding:0, vol24h:0, high24h:0, low24h:0,
   evidence:{buyWall:0,sellWall:0,delta:0,cvd:0,oi:0,funding:0,whale:0,absorption:0,iceberg:0,velocity:0},
   prob:{acc:0,dist:0,trap:0,neutral:100},
@@ -604,12 +604,14 @@ function connectAll(sym){
   if(S.wsDepth) S.wsDepth.close();
   if(S.wsTrade) S.wsTrade.close();
   S.cvd=0; S.delta=0; S.buyVol=0; S.sellVol=0; S.vwapN=0; S.vwapD=0;
-  S.asks=[]; S.bids=[]; S.trades=[];
+  S.asks=[]; S.bids=[]; S.trades=[]; S.liquidations=[];
+  $('tbSym').textContent=sym.replace('usdt','').toUpperCase()+'/USDT';
   connectDepth(sym); connectTrades(sym);
-  loadCandles(sym, S.tf); loadWhaleHistory(); loadFunding(sym); load24h(sym);
+  loadCandles(sym, S.tf); loadWhaleHistory(); loadFunding(sym); loadOI(sym); loadLiquidations(sym); load24h(sym);
 }
 
 function connectDepth(sym){
+  $('wsLbl').textContent='Connecting...';$('wsLbl').style.color='var(--yellow)';
   const ws=new WebSocket(getBsWs(`/binance-proxy?stream=/stream?streams=${sym}@depth20@500ms`));
   S.wsDepth=ws;
   ws.onopen=()=>{$('wsLbl').textContent='Connected';$('wsLbl').style.color='var(--green)';};
@@ -629,6 +631,7 @@ function connectDepth(sym){
 function connectTrades(sym){
   const ws=new WebSocket(getBsWs(`/binance-proxy?stream=/stream?streams=${sym}@aggTrade`));
   S.wsTrade=ws;
+  ws.onopen=()=>{$('wsLbl').textContent='Connected';$('wsLbl').style.color='var(--green)';};
   ws.onmessage=(e)=>{
     try{
       const t=(JSON.parse(e.data).data||JSON.parse(e.data));
@@ -646,7 +649,7 @@ function connectTrades(sym){
       updateTopBar(); updateMetrics(); checkAlerts(price);
     }catch(ex){}
   };
-  ws.onclose=()=>setTimeout(()=>connectTrades(sym),3000);
+  ws.onclose=()=>{$('wsLbl').textContent='Reconnecting...';$('wsLbl').style.color='var(--yellow)';setTimeout(()=>connectTrades(sym),3000);};
   ws.onerror=()=>ws.close();
 }
 
@@ -676,9 +679,27 @@ async function loadWhaleHistory(){
 
 async function loadFunding(sym){
   try{
-    const r=await fetch(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${sym.toUpperCase()}`);
+    const r=await fetch(`/api/binance-rest/fapi/v1/premiumIndex?symbol=${sym.toUpperCase()}`);
     if(r.ok){const d=await r.json();S.funding=+d.lastFundingRate*100;$('tbFunding').textContent=S.funding.toFixed(4)+'%';$('tbFunding').className='ts-val '+(S.funding>=0?'g':'r');$('mFund').textContent=S.funding.toFixed(4)+'%';}
+    else{
+      const r2=await fetch(`/api/binance-rest/api/v3/ticker/24hr?symbol=${sym.toUpperCase()}`);
+      if(r2.ok){/* spot fallback, no funding */}
+    }
   }catch(ex){}
+}
+
+async function loadOI(sym){
+  try{
+    const r=await fetch(`/api/binance-rest/fapi/v1/openInterest?symbol=${sym.toUpperCase()}`);
+    if(r.ok){const d=await r.json();S.oiPrev=S.oi||+d.openInterest;S.oi=+d.openInterest;$('tbOI').textContent=fmtK(S.oi);const oc=S.oi-S.oiPrev;$('mOiC').textContent=(oc>=0?'+':'')+fmtK(oc);}
+  }catch(ex){}
+}
+
+async function loadLiquidations(sym){
+  try{
+    const r=await fetch(`/api/binance-rest/fapi/v1/allForceOrders?symbol=${sym.toUpperCase()}&limit=20`);
+    if(r.ok){const d=await r.json();S.liquidations=d.map(l=>({price:+l.p,qty:+l.q,side:l.S,time:l.T,val:(+l.p)*(+l.q)}));}
+  }catch(ex){S.liquidations=[];}
 }
 
 async function load24h(sym){
@@ -1074,6 +1095,59 @@ function renderInd(){
     const mv=Math.max(...cs.map(c=>c.volume),1);
     cs.forEach((c,i)=>{const bH=(c.volume/mv)*H*.85;const x=(i/cs.length)*W;const bw=W/cs.length-.5;ctx.fillStyle=c.close>=c.open?'rgba(0,212,168,.5)':'rgba(255,77,109,.5)';ctx.fillRect(x,H-bH,bw,bH);});
     ctx.fillStyle='rgba(106,138,170,.6)';ctx.font='8px IBM Plex Mono';ctx.fillText('VOLUME',3,11);
+  } else if(S.activeInd==='oi'){
+    // OI indicator — show current OI value as bar + label
+    const oi=S.oi||0; const oiP=S.oiPrev||oi; const chg=oi-oiP; const up=chg>=0;
+    ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='bold 9px IBM Plex Mono';
+    ctx.fillText('Open Interest: '+fmtK(oi),3,12);
+    ctx.fillStyle=up?'rgba(0,212,168,.6)':'rgba(255,77,109,.6)'; ctx.font='8px IBM Plex Mono';
+    ctx.fillText('Change: '+(up?'+':'')+fmtK(chg),3,24);
+    // Draw OI bar
+    const barW=W*.7,barH=H*.35,bx=(W-barW)/2,by=H*.45;
+    ctx.fillStyle='var(--bg4)||#162234'; ctx.fillRect(bx,by,barW,barH);
+    const fillPct=oi>0?Math.min(1,(oi/(oi*1.5))):0.5;
+    const grd=ctx.createLinearGradient(bx,0,bx+barW*fillPct,0);
+    grd.addColorStop(0,up?'rgba(0,212,168,.4)':'rgba(255,77,109,.4)'); grd.addColorStop(1,up?'rgba(0,212,168,.8)':'rgba(255,77,109,.8)');
+    ctx.fillStyle=grd; ctx.fillRect(bx,by,barW*fillPct,barH);
+    ctx.strokeStyle='rgba(26,42,58,.8)'; ctx.strokeRect(bx,by,barW,barH);
+  } else if(S.activeInd==='funding'){
+    // Funding rate indicator
+    const f=S.funding||0; const up=f>=0;
+    ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='bold 9px IBM Plex Mono';
+    ctx.fillText('Funding Rate: '+f.toFixed(4)+'%',3,12);
+    ctx.fillStyle=up?'rgba(0,212,168,.5)':'rgba(255,77,109,.5)'; ctx.font='8px IBM Plex Mono';
+    ctx.fillText(up?'Longs pay Shorts (Bullish bias)':'Shorts pay Longs (Bearish bias)',3,24);
+    // Draw funding gauge
+    const mid=W/2,gY=H*.55,gW=W*.7,gH=8;
+    ctx.fillStyle='#162234'; ctx.fillRect(mid-gW/2,gY,gW,gH);
+    const barLen=Math.min(Math.abs(f)*2000,gW/2);
+    ctx.fillStyle=up?'rgba(0,212,168,.75)':'rgba(255,77,109,.75)';
+    if(up) ctx.fillRect(mid,gY,barLen,gH); else ctx.fillRect(mid-barLen,gY,barLen,gH);
+    ctx.strokeStyle='rgba(255,255,255,.15)'; ctx.lineWidth=.5; ctx.beginPath();ctx.moveTo(mid,gY-2);ctx.lineTo(mid,gY+gH+2);ctx.stroke();
+    ctx.fillStyle='rgba(106,138,170,.5)'; ctx.font='7px IBM Plex Mono'; ctx.textAlign='center';
+    ctx.fillText('0%',mid,gY+gH+10); ctx.textAlign='left';
+  } else if(S.activeInd==='liq'){
+    // Liquidation indicator
+    const liqs=S.liquidations||[];
+    ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='bold 9px IBM Plex Mono';
+    ctx.fillText('Recent Liquidations: '+liqs.length,3,12);
+    if(liqs.length){
+      const totalLong=liqs.filter(l=>l.side==='SELL').reduce((s,l)=>s+l.val,0);
+      const totalShort=liqs.filter(l=>l.side==='BUY').reduce((s,l)=>s+l.val,0);
+      ctx.fillStyle='rgba(255,77,109,.6)'; ctx.font='8px IBM Plex Mono';
+      ctx.fillText('Long Liqs: $'+fmtK(totalLong),3,24);
+      ctx.fillStyle='rgba(0,212,168,.6)';
+      ctx.fillText('Short Liqs: $'+fmtK(totalShort),W/2,24);
+      // Draw liquidation bars
+      const bw=Math.max(3,W/liqs.length-1);
+      const maxV=Math.max(...liqs.map(l=>l.val),1);
+      liqs.forEach((l,i)=>{const bH=(l.val/maxV)*H*.5;const x=(i/liqs.length)*W;
+        ctx.fillStyle=l.side==='SELL'?'rgba(255,77,109,.6)':'rgba(0,212,168,.6)';
+        ctx.fillRect(x,H-bH-2,bw,bH);});
+    } else {
+      ctx.fillStyle='rgba(106,138,170,.4)'; ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
+      ctx.fillText('No liquidation data available',W/2,H/2); ctx.textAlign='left';
+    }
   } else {
     ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
     ctx.fillText(S.activeInd.toUpperCase()+' — Coming Soon',W/2,H/2); ctx.textAlign='left';
@@ -1292,7 +1366,7 @@ function loop(){
   frame++;
   if(frame%30===0){renderChart();renderInd();renderLiq();buildSPL();}
   if(frame%60===0){runEvidence();renderWL();updateStatus();}
-  if(frame%600===0){loadWhaleHistory();loadFunding(S.sym);loadCandles(S.sym,S.tf);}
+  if(frame%600===0){loadWhaleHistory();loadFunding(S.sym);loadOI(S.sym);loadLiquidations(S.sym);loadCandles(S.sym,S.tf);}
   requestAnimationFrame(loop);
 }
 
