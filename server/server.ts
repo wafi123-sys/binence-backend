@@ -150,8 +150,43 @@ app.prepare().then(async () => {
       }));
       return;
     }
+    // ── /api/binance-rest  — Proxy ke api.binance.com ─────────────────────────
+    if (req.url && req.url.startsWith('/api/binance-rest')) {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+
+      // Strip /api/binance-rest prefix, forward the rest to Binance REST API
+      const binancePath = req.url.replace('/api/binance-rest', '');
+      const targetUrl = `https://api.binance.com${binancePath}`;
+      console.log(`[REST Proxy] -> ${targetUrl}`);
+
+      import('https').then(({ default: https }) => {
+        const proxyReq = https.get(targetUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+          },
+        }, (proxyRes) => {
+          res.writeHead(proxyRes.statusCode || 200, {
+            'Content-Type': proxyRes.headers['content-type'] || 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          proxyRes.pipe(res);
+        });
+        proxyReq.on('error', (err) => {
+          console.error(`[REST Proxy] Error: ${err.message}`);
+          res.writeHead(502);
+          res.end(JSON.stringify({ error: 'Proxy error', detail: err.message }));
+        });
+        proxyReq.end();
+      });
+      return;
+    }
     handle(req, res);
   });
+
 
   // Setup Binance WebSocket Proxy
   const binanceProxyWss = new WebSocketServer({ noServer: true });
