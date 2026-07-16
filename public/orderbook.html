@@ -4110,18 +4110,18 @@ async function runBacktest() {
       trades = r.trades.map(t => ({
         time: new Date(t.exitTime).toLocaleString('id-ID'),
         side: t.side,
-        entry: t.entryPrice,
-        exit: t.exitPrice,
-        pnl: t.netPnl,
-        pct: t.pct,
+        entry: t.entryPrice || 0,
+        exit: t.exitPrice || 0,
+        pnl: t.netPnl || 0,
+        pct: t.pct || 0,
         reason: t.exitReason
       }));
       equity = r.equity.map(e => e.value);
       totalRet = r.netReturn;
-      totalRetPct = r.netReturnPct;
-      winRate = r.winRate;
-      pf = r.profitFactor;
-      maxDD = r.maxDrawdown;
+      totalRetPct = r.netReturnPct || 0;
+      winRate = r.winRate || 0;
+      pf = r.profitFactor === null ? Infinity : r.profitFactor;
+      maxDD = r.maxDrawdown || 0;
       isProfit = totalRet >= 0;
       finalCap = capital + totalRet;
     } else {

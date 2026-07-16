@@ -259,6 +259,7 @@ export class BacktestEngine {
       : (pos.entryPrice - effExit) * pos.qty;
     const exitFee = effExit * pos.qty * feeRate;
     const netPnl = grossPnl - exitFee;
+    const cost = pos.entryPrice * pos.qty;
     return {
       side: pos.side,
       entryPrice: pos.entryPrice,
@@ -267,7 +268,7 @@ export class BacktestEngine {
       exitTime,
       grossPnl,
       netPnl,
-      pct: netPnl / pos.cost * 100,
+      pct: cost > 0 ? (netPnl / cost * 100) : 0,
       feePaid: exitFee,
       exitReason: reason,
       strategyName: pos.strategyName,
