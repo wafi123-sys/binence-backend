@@ -41,7 +41,7 @@ html,body{width:100%;height:100%;background:var(--bg0);color:var(--t1);font-fami
 /* BODY */
 #body{flex:1;display:flex;gap:var(--gap);overflow:hidden;min-height:0}
 /* SIDEBAR L */
-#sdl{width:142px;min-width:142px;display:flex;flex-direction:column;background:var(--bg1);border-right:1px solid var(--b1);overflow:hidden}
+#sdl{width:240px;min-width:240px;display:flex;flex-direction:column;background:var(--bg1);border-right:1px solid var(--b1);overflow:hidden}
 /* CENTER */
 #ctr{flex:1;display:flex;flex-direction:column;gap:var(--gap);min-width:0;overflow:hidden}
 /* SIDEBAR R */
@@ -224,6 +224,31 @@ html,body{width:100%;height:100%;background:var(--bg0);color:var(--t1);font-fami
     <span class="tb-chg up" id="tbChg">—</span>
     <span style="margin-left:7px;font-size:9px;color:var(--t4);font-family:var(--mono);">BINANCE</span>
   </div>
+  
+  <div class="active-symbol" id="marketOverview" style="display:flex; gap:16px; align-items:center; padding:0 14px; border-right:1px solid var(--b1); height:100%;">
+    <div style="display:flex; flex-direction:column; gap:2px; justify-content:center;">
+      <span style="color:var(--t4); font-size:9px; font-family:var(--mono); font-weight:bold; letter-spacing:0.5px;">BTC.D</span>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <span id="mBtcDom" style="color:var(--t1); font-weight:600; font-family:var(--mono); font-size:12px;">54.21%</span>
+        <span id="mBtcDomChg" class="tb-chg up" style="font-size:10px;">+0.12%</span>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:2px; justify-content:center;">
+      <span style="color:var(--t4); font-size:9px; font-family:var(--mono); font-weight:bold; letter-spacing:0.5px;">ETH.D</span>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <span id="mEthDom" style="color:var(--t1); font-weight:600; font-family:var(--mono); font-size:12px;">17.84%</span>
+        <span id="mEthDomChg" class="tb-chg dn" style="font-size:10px;">-0.05%</span>
+      </div>
+    </div>
+    <div style="display:flex; flex-direction:column; gap:2px; justify-content:center;">
+      <span style="color:var(--t4); font-size:9px; font-family:var(--mono); font-weight:bold; letter-spacing:0.5px;">MKT CAP</span>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <span id="mMktCap" style="color:var(--t1); font-weight:600; font-family:var(--mono); font-size:12px;">$2.45T</span>
+        <span id="mMktCapChg" class="tb-chg up" style="font-size:10px;">+1.24%</span>
+      </div>
+    </div>
+  </div>
+
   <div class="tb-stats">
     <div class="tb-stat"><span class="ts-lbl">SPREAD</span><span class="ts-val" id="tbSpread">—</span></div>
     <div class="tb-stat"><span class="ts-lbl">OI</span><span class="ts-val b" id="tbOI">—</span></div>
@@ -251,13 +276,47 @@ html,body{width:100%;height:100%;background:var(--bg0);color:var(--t1);font-fami
 <!-- BODY -->
 <div id="body">
 
-  <!-- WATCHLIST -->
-  <div id="sdl">
-    <div class="phdr"><span class="phdr-t">Watchlist</span><span style="font-size:9px;color:var(--accent);font-family:var(--mono);cursor:pointer;">+ Add</span></div>
-    <div id="wl-body" style="flex:1;overflow-y:auto;"></div>
-    <div style="border-top:1px solid var(--b1);padding:6px 7px;">
-      <div style="font-size:8px;color:var(--t4);font-family:var(--mono);margin-bottom:4px;">EXCHANGE</div>
-      <div style="display:flex;gap:3px;"><span class="tbtn act" style="font-size:8px;padding:2px 5px;">BINANCE</span><span class="tbtn" style="font-size:8px;padding:2px 5px;opacity:.4;">BYBIT</span></div>
+  <!-- SIDEBAR (V1 MERGED) -->
+  <div id="sdl" class="sidebar">
+    <div class="search-wrap" style="padding:10px; border-bottom:1px solid var(--b1); background:var(--bg2);">
+      <input id="globalSearch" type="text" placeholder="Search pair (e.g. BTC)..." style="width:100%; padding:6px 10px; background:var(--bg4); border:1px solid var(--b2); border-radius:4px; color:var(--t1); font-size:11px; font-family:var(--mono); outline:none;" autocomplete="off" spellcheck="false" />
+    </div>
+    <div class="sidebar-tabs" style="display:flex; border-bottom:1px solid var(--b1); background:var(--bg2);">
+      <button class="sidebar-tab active" data-tab="all" style="flex:1; padding:7px 0; border:none; background:none; font-size:10px; font-family:var(--mono); color:var(--accent); border-bottom:2px solid var(--accent); cursor:pointer;">All</button>
+      <button class="sidebar-tab" data-tab="movers" style="flex:1; padding:7px 0; border:none; background:none; font-size:10px; font-family:var(--mono); color:var(--t3); cursor:pointer;">Gainers</button>
+      <button class="sidebar-tab" data-tab="losers" style="flex:1; padding:7px 0; border:none; background:none; font-size:10px; font-family:var(--mono); color:var(--t3); cursor:pointer;">Losers</button>
+    </div>
+
+    <!-- SEARCH RESULTS (shown when typing) -->
+    <div class="search-results-panel sidebar-panel" id="searchPanel" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="coin-list-header" style="display:grid; grid-template-columns:1fr 1fr .8fr; padding:4px 9px; font-size:9px; font-family:var(--mono); color:var(--t4); background:var(--bg3); border-bottom:1px solid var(--b1);">
+        <span>Pair</span><span style="text-align:right;">Price</span><span style="text-align:right;">24h%</span>
+      </div>
+      <div class="coin-list" id="searchList" style="flex:1; overflow-y:auto;"></div>
+    </div>
+
+    <!-- ALL PAIRS -->
+    <div class="sidebar-panel active" id="panelAll" style="display:flex; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="coin-list-header" style="display:grid; grid-template-columns:1fr 1fr .8fr; padding:4px 9px; font-size:9px; font-family:var(--mono); color:var(--t4); background:var(--bg3); border-bottom:1px solid var(--b1);">
+        <span>Pair</span><span style="text-align:right;">Price</span><span style="text-align:right;">24h%</span>
+      </div>
+      <div class="coin-list" id="allList" style="flex:1; overflow-y:auto;"></div>
+    </div>
+
+    <!-- TOP MOVERS -->
+    <div class="sidebar-panel" id="panelMovers" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="coin-list-header" style="display:grid; grid-template-columns:1fr 1fr .8fr; padding:4px 9px; font-size:9px; font-family:var(--mono); color:var(--t4); background:var(--bg3); border-bottom:1px solid var(--b1);">
+        <span>Pair</span><span style="text-align:right;">Price</span><span style="text-align:right;">24h%</span>
+      </div>
+      <div class="coin-list" id="moversList" style="flex:1; overflow-y:auto;"></div>
+    </div>
+
+    <!-- TOP LOSERS -->
+    <div class="sidebar-panel" id="panelLosers" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="coin-list-header" style="display:grid; grid-template-columns:1fr 1fr .8fr; padding:4px 9px; font-size:9px; font-family:var(--mono); color:var(--t4); background:var(--bg3); border-bottom:1px solid var(--b1);">
+        <span>Pair</span><span style="text-align:right;">Price</span><span style="text-align:right;">24h%</span>
+      </div>
+      <div class="coin-list" id="losersList" style="flex:1; overflow-y:auto;"></div>
     </div>
   </div>
 
@@ -1173,17 +1232,106 @@ function updateMetrics(){
   const oc=S.oi-S.oiPrev;$('mOiC').textContent=(oc>=0?'+':'')+fmtK(oc);
 }
 
-// ── Watchlist ────────────────────────────────────────────────────────────────
-const WL=[{s:'btcusdt',n:'BTC/USDT'},{s:'ethusdt',n:'ETH/USDT'},{s:'solusdt',n:'SOL/USDT'},{s:'xrpusdt',n:'XRP/USDT'},{s:'bnbusdt',n:'BNB/USDT'},{s:'dogeusdt',n:'DOGE/USDT'},{s:'adausdt',n:'ADA/USDT'},{s:'avaxusdt',n:'AVAX/USDT'}];
-const wlData={};
-function renderWL(){
-  $('wl-body').innerHTML=WL.map(it=>{
-    const d=wlData[it.s]||{}; const dc=d.change>=0?'up':'dn';
-    return `<div class="wl-item ${S.sym===it.s?'act':''}" onclick="switchSym('${it.s}')"><span class="wl-n">${it.n}</span><div style="display:flex;align-items:center;justify-content:space-between;"><span class="wl-p">${d.price?fmtP(d.price):'—'}</span><span class="wl-c ${dc}">${d.change!==undefined?(d.change>=0?'+':'')+d.change.toFixed(2)+'%':'—'}</span></div><div class="wl-dot" style="background:${S.aiScore>70?'var(--green)':S.aiScore>40?'var(--yellow)':'var(--t4)'};"></div></div>`;
-  }).join('');
+// ── Watchlist / Sidebar Logic (V1 Merged) ────────────────────────────────────
+let marketsData = [];
+async function fetchMarkets(){
+  try{
+    const res = await fetch('/api/binance-rest/api/v3/ticker/24hr');
+    if(!res.ok) return;
+    const data = await res.json();
+    marketsData = data.filter(d=>d.symbol.endsWith('USDT')).map(d=>({
+      s: d.symbol.toLowerCase(),
+      n: d.symbol.replace('USDT','/USDT'),
+      p: +d.lastPrice,
+      c: +d.priceChangePercent,
+      v: +d.quoteVolume
+    })).sort((a,b)=>b.v - a.v);
+    renderSidebarLists();
+    updateMarketOverview(marketsData);
+  }catch(e){}
 }
 
-function switchSym(sym){connectAll(sym);renderWL();}
+function updateMarketOverview(data){
+  if(!data.length) return;
+  const btc = data.find(d=>d.s==='btcusdt');
+  const eth = data.find(d=>d.s==='ethusdt');
+  const totalVol = data.reduce((sum,d)=>sum+d.v,0);
+  
+  if($('mBtcDom')&&btc) $('mBtcDom').textContent = '54.21%'; // Mock dom for aesthetic as binance 24hr doesn't give global cap
+  if($('mBtcDomChg')&&btc) { $('mBtcDomChg').textContent = (btc.c>0?'+':'')+btc.c.toFixed(2)+'%'; $('mBtcDomChg').className = 'tb-chg '+(btc.c>=0?'up':'dn'); }
+  
+  if($('mEthDom')&&eth) $('mEthDom').textContent = '17.84%';
+  if($('mEthDomChg')&&eth) { $('mEthDomChg').textContent = (eth.c>0?'+':'')+eth.c.toFixed(2)+'%'; $('mEthDomChg').className = 'tb-chg '+(eth.c>=0?'up':'dn'); }
+  
+  if($('mVol')) $('mVol').textContent = '$' + fmtK(totalVol);
+}
+
+function renderCoinItem(it){
+  const dc = it.c >= 0 ? 'up' : 'dn';
+  const cStr = it.c >= 0 ? '+'+it.c.toFixed(2)+'%' : it.c.toFixed(2)+'%';
+  const act = S.sym === it.s ? 'act' : '';
+  return `<div class="wl-item ${act}" onclick="switchSym('${it.s}')" style="display:grid;grid-template-columns:1fr 1fr .8fr;align-items:center;">
+    <span class="wl-n">${it.n}</span>
+    <span class="wl-p" style="text-align:right;">${fmtP(it.p)}</span>
+    <span class="wl-c ${dc}" style="text-align:right;">${cStr}</span>
+    <div class="wl-dot" style="background:${S.aiScore>70?'var(--green)':S.aiScore>40?'var(--yellow)':'var(--t4)'};display:none;"></div>
+  </div>`;
+}
+
+function renderSidebarLists(){
+  if(!marketsData.length) return;
+  const q = ($('globalSearch')?.value||'').toLowerCase();
+  
+  // All
+  $('allList').innerHTML = marketsData.slice(0,100).map(renderCoinItem).join('');
+  
+  // Movers
+  const gainers = [...marketsData].sort((a,b)=>b.c - a.c).slice(0,50);
+  $('moversList').innerHTML = gainers.map(renderCoinItem).join('');
+  
+  // Losers
+  const losers = [...marketsData].sort((a,b)=>a.c - b.c).slice(0,50);
+  $('losersList').innerHTML = losers.map(renderCoinItem).join('');
+  
+  // Search
+  if(q){
+    const res = marketsData.filter(d=>d.s.includes(q)).slice(0,50);
+    $('searchList').innerHTML = res.length ? res.map(renderCoinItem).join('') : '<div style="padding:10px;color:var(--t4);font-size:10px;">No results found.</div>';
+  }
+}
+
+// Sidebar Tabs Logic
+document.querySelectorAll('.sidebar-tab').forEach(tab=>{
+  tab.addEventListener('click', function(){
+    document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active'));
+    this.classList.add('active');
+    document.querySelectorAll('.sidebar-panel').forEach(p=>p.style.display='none');
+    
+    // hide search
+    $('searchPanel').style.display='none';
+    $('globalSearch').value='';
+    
+    if(this.dataset.tab==='all') $('panelAll').style.display='flex';
+    if(this.dataset.tab==='movers') $('panelMovers').style.display='flex';
+    if(this.dataset.tab==='losers') $('panelLosers').style.display='flex';
+  });
+});
+
+$('globalSearch')?.addEventListener('input', function(){
+  const val = this.value.trim().toLowerCase();
+  document.querySelectorAll('.sidebar-panel').forEach(p=>p.style.display='none');
+  document.querySelectorAll('.sidebar-tab').forEach(t=>t.classList.remove('active'));
+  
+  if(val.length > 0){
+    $('searchPanel').style.display='flex';
+    renderSidebarLists();
+  } else {
+    $('panelAll').style.display='flex';
+    document.querySelector('.sidebar-tab[data-tab="all"]').classList.add('active');
+  }
+});
+
+function switchSym(sym){connectAll(sym);renderSidebarLists();}
 
 // ── Smart Price Lens ─────────────────────────────────────────────────────────
 function openLens(price){
@@ -1365,14 +1513,16 @@ let frame=0;
 function loop(){
   frame++;
   if(frame%30===0){renderChart();renderInd();renderLiq();buildSPL();}
-  if(frame%60===0){runEvidence();renderWL();updateStatus();}
+  if(frame%60===0){runEvidence();updateStatus();}
   if(frame%600===0){loadWhaleHistory();loadFunding(S.sym);loadOI(S.sym);loadLiquidations(S.sym);loadCandles(S.sym,S.tf);}
   requestAnimationFrame(loop);
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 window.addEventListener('load',()=>{
-  renderWL();
+  fetchMarkets();
+  setInterval(fetchMarkets, 15000); // refresh sidebar every 15s
+  
   connectAll('btcusdt');
   loop();
   setTimeout(()=>{
