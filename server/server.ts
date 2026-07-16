@@ -237,11 +237,7 @@ app.prepare().then(async () => {
       return;
     }
 
-    // Use stream.binance.com:9443 as primary (more stable for server-side)
-    // Fall back to the origin param if it's already a specific host
-    const host = (origin === 'data-stream.binance.vision')
-      ? 'stream.binance.com:9443'
-      : origin;
+    const host = origin;
     const targetUrl = `wss://${host}${streamPath}`;
     console.log(`[Proxy] Connecting to: ${targetUrl}`);
 

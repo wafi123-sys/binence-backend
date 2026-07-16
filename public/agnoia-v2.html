@@ -652,10 +652,15 @@ const S = {
 let currentPrice = 0;
 
 // ── Proxy ────────────────────────────────────────────────────────────────────
-function getBsWs(stream){
-  const h=location.hostname, p=location.port, proto=location.protocol==='https:'?'wss:':'ws:';
-  return `${proto}//${h}${p?':'+p:''}${stream}`;
-}
+  function getBsWs(stream){
+    const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (stream.startsWith('/ws/')) {
+      const origin = 'stream.binancefuture.com';
+      return `${wsProtocol}//${location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(stream)}`;
+    }
+    const origin = 'data-stream.binance.vision';
+    return `${wsProtocol}//${location.host}/binance-proxy?origin=${origin}&stream=${encodeURIComponent(stream)}`;
+  }
 
 // ── Connect All ──────────────────────────────────────────────────────────────
 function connectAll(sym){
