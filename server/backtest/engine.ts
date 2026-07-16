@@ -241,7 +241,8 @@ export const STRATEGY_SCALPING_PULLBACK: StrategyConfig = {
   }
 };
 
-export { STRATEGY_LIQUIDITY_SWEEP, resetLiquiditySweepTracker } from './strategies/liquiditySweep';
+import { STRATEGY_LIQUIDITY_SWEEP, resetLiquiditySweepTracker } from './strategies/liquiditySweep';
+export { STRATEGY_LIQUIDITY_SWEEP, resetLiquiditySweepTracker };
 
 export const ALL_STRATEGIES = [
   STRATEGY_VERIFIED_WALL_BOUNCE,
