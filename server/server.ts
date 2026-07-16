@@ -207,6 +207,7 @@ app.prepare().then(async () => {
 
       import('https').then(({ default: https }) => {
         const proxyReq = https.get(targetUrl, {
+          timeout: 4000,
           headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': 'application/json',
@@ -222,6 +223,11 @@ app.prepare().then(async () => {
           console.error(`[REST Proxy] Error: ${err.message}`);
           res.writeHead(502);
           res.end(JSON.stringify({ error: 'Proxy error', detail: err.message }));
+        });
+        proxyReq.on('timeout', () => {
+          proxyReq.destroy();
+          res.writeHead(504);
+          res.end(JSON.stringify({ error: 'Gateway Timeout (Binance blocked IP)' }));
         });
         proxyReq.end();
       });
