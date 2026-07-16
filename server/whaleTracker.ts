@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
 import * as fs from 'fs';
 import * as path from 'path';
+import { globalDataLogger } from './dataLogger';
 
 export interface WhaleEvent {
   time: number;
@@ -54,6 +55,7 @@ export interface CoinState {
   asks: Map<number, number>;
   bids: Map<number, number>;
   vol24h: number;
+  _lastSnapshotLog?: number;
 }
 
 interface VolTier {
@@ -280,6 +282,8 @@ export class WhaleTracker {
     const state = this.getState(symbol);
 
     if (msg.e === 'aggTrade') {
+      globalDataLogger.logEvent(symbol, 'trade', msg);
+
       const price = parseFloat(msg.p);
       const qty = parseFloat(msg.q);
       const isMaker = msg.m; 
@@ -312,6 +316,26 @@ export class WhaleTracker {
     else if (msg.e === 'depthUpdate') {
       for (const [p, q] of msg.b) state.bids.set(parseFloat(p), parseFloat(q));
       for (const [p, q] of msg.a) state.asks.set(parseFloat(p), parseFloat(q));
+      
+      const now = Date.now();
+      if (!msg.lastSnapshotLog || now - msg.lastSnapshotLog >= 2000) {
+        msg.lastSnapshotLog = now;
+        // we log msg itself, which contains bids/asks updates. For a full snapshot, we'd need to send state.bids/asks.
+        // However, msg (depthUpdate) only contains deltas. If we want full snapshot, we should serialize state.bids/asks.
+        // But let's stick to logging the delta msg for now or the first 50 levels of the book.
+        
+        // Let's create a lightweight snapshot of the top 20 levels
+        if (!state._lastSnapshotLog || now - state._lastSnapshotLog >= 2000) {
+          state._lastSnapshotLog = now;
+          const topBids = [...state.bids.entries()].filter(x => x[1] > 0).sort((a,b) => b[0] - a[0]).slice(0, 20);
+          const topAsks = [...state.asks.entries()].filter(x => x[1] > 0).sort((a,b) => a[0] - b[0]).slice(0, 20);
+          globalDataLogger.logEvent(symbol, 'snapshot', {
+            time: now,
+            b: topBids,
+            a: topAsks
+          });
+        }
+      }
     }
   }
 
