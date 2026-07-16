@@ -3778,6 +3778,10 @@ setInterval(() => {
       </div>
       <div class="bt-row">
         <div class="bt-field"><label class="bt-label">Fee per Trade (%)</label><input class="bt-input" id="btFee" type="number" value="0.1" step="0.01" /></div>
+        <div class="bt-field"><label class="bt-label">Slippage (Bps)</label><input class="bt-input" id="btSlippage" type="number" value="3" step="1" /></div>
+      </div>
+      <div class="bt-row" style="margin-top: 10px;">
+        <div class="bt-field" style="justify-content: flex-start; align-items: flex-start;">
         <div class="bt-field" style="justify-content: center; align-items: flex-start; padding-top: 15px;">
           <label style="color:var(--txt); font-size:12px; cursor:pointer;">
             <input type="checkbox" id="btShorting" style="margin-right:5px;" checked /> Allow Shorting
@@ -4124,6 +4128,9 @@ async function runBacktest() {
     const feePct = parseFloat(document.getElementById('btFee').value) || 0;
     const allowShorting = document.getElementById('btShorting').checked;
 
+    const slippageBps = parseInt(document.getElementById('btSlippage')?.value) || 3;
+    const feeBps = feePct * 100; // Convert % to Bps
+
     const isOrderFlow = ['wall_bounce','cvd_fade','composite','scalping_pullback','all'].includes(strategy);
     let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
     let openPosition = null;
@@ -4132,7 +4139,7 @@ async function runBacktest() {
       const apiResp = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol, strategy, capital, interval })
+        body: JSON.stringify({ symbol, strategy, capital, interval, slPct, tpPct, slippageBps, feeBps })
       });
       const data = await apiResp.json();
       if (!apiResp.ok) throw new Error(data.error || 'Server error');
