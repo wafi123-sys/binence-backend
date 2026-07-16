@@ -512,6 +512,84 @@
       .main-col4 .list-header { min-width: 500px; }
       .main-col4 > div:last-child { min-width: 500px; } /* Ensures the rows scroll horizontally */
     }
+
+    /* ====== BACKTEST PANEL ====== */
+    .bt-panel {
+      position: fixed; right: 0; top: 60px; bottom: 0; width: 520px;
+      background: var(--bg2); border-left: 1px solid var(--border);
+      z-index: 1001; transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex; flex-direction: column;
+    }
+    .bt-panel.open { transform: translateX(0); box-shadow: -10px 0 40px rgba(0,0,0,0.6); }
+    .bt-header {
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(135deg, rgba(79,110,247,0.15), rgba(124,58,237,0.1));
+      flex-shrink: 0;
+    }
+    .bt-title { font-weight: 700; font-size: 15px; color: var(--txt); display: flex; align-items: center; gap: 8px; }
+    .bt-close { cursor: pointer; color: var(--txt3); background: none; border: none; font-size: 20px; line-height: 1; transition: color 0.2s; }
+    .bt-close:hover { color: var(--red); }
+    .bt-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+    .bt-body::-webkit-scrollbar { width: 3px; }
+    .bt-body::-webkit-scrollbar-thumb { background: var(--border2,#2a3a5c); border-radius: 2px; }
+    .bt-config-card { background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .bt-section-title {
+      font-size: 11px; font-weight: 700; color: var(--txt3); text-transform: uppercase;
+      letter-spacing: 0.8px; margin-bottom: 12px; display: flex; align-items: center; gap: 6px;
+    }
+    .bt-section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .bt-row { display: flex; gap: 12px; margin-bottom: 12px; }
+    .bt-field { flex: 1; }
+    .bt-label { display: block; font-size: 10px; color: var(--txt3); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.4px; }
+    .bt-input {
+      width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: 7px;
+      padding: 8px 10px; color: var(--txt); font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; outline: none; transition: border-color 0.2s;
+    }
+    .bt-input:focus { border-color: var(--accent,#4f6ef7); }
+    .bt-select {
+      width: 100%; background: var(--bg2); border: 1px solid var(--border); border-radius: 7px;
+      padding: 8px 10px; color: var(--txt); font-family: 'JetBrains Mono', monospace;
+      font-size: 13px; outline: none; cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='%238892a4'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px;
+    }
+    .bt-run-btn {
+      width: 100%; padding: 13px; border-radius: 9px; border: none;
+      background: linear-gradient(135deg, #4f6ef7, #7c3aed);
+      color: #fff; font-size: 14px; font-weight: 700; cursor: pointer;
+      transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .bt-run-btn:hover { box-shadow: 0 4px 20px rgba(79,110,247,0.5); transform: translateY(-1px); }
+    .bt-run-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+    .bt-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .bt-metric { background: var(--bg4,#1a2236); border: 1px solid var(--border); border-radius: 8px; padding: 10px 8px; text-align: center; }
+    .bt-metric-val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--txt); }
+    .bt-metric-val.green { color: var(--green,#00d4a8); }
+    .bt-metric-val.red { color: var(--red,#ff4d6d); }
+    .bt-metric-lbl { font-size: 9px; color: var(--txt3); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
+    #btEquityCanvas { width: 100%; border-radius: 8px; display: block; background: var(--bg5,#0d1220); border: 1px solid var(--border); }
+    .bt-trade-log { max-height: 300px; overflow-y: auto; }
+    .bt-trade-row {
+      display: grid; grid-template-columns: 50px 45px 90px 90px 80px 65px;
+      padding: 5px 10px; border-bottom: 1px solid rgba(30,42,69,0.5);
+      font-family: 'JetBrains Mono', monospace; font-size: 10.5px; align-items: center; transition: background 0.1s;
+    }
+    .bt-trade-row:hover { background: var(--bg4,#1a2236); }
+    .bt-trade-row.bt-hdr { color: var(--txt3); font-size: 9.5px; font-weight: 700; text-transform: uppercase; }
+    .bt-side-long { color: var(--green,#00d4a8); font-weight: 700; }
+    .bt-side-short { color: var(--red,#ff4d6d); font-weight: 700; }
+    .bt-param-group { display: none; }
+    .bt-param-group.visible { display: flex; flex-direction: column; gap: 8px; }
+    .bt-nav-btn {
+      background: linear-gradient(135deg, #4f6ef7, #7c3aed); color: #fff; border: none; border-radius: 8px;
+      padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 6px; transition: all 0.2s; white-space: nowrap;
+    }
+    .bt-nav-btn:hover { box-shadow: 0 0 12px rgba(79,110,247,0.5); }
+    @keyframes btFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+    .bt-anim { animation: btFadeIn 0.3s ease-out; }
   </style>
 </head>
 <body>
@@ -555,7 +633,7 @@
         <span style="color:var(--txt3); font-size:10px; font-weight:bold; letter-spacing:0.5px;">ETH.D</span>
         <div style="display:flex; align-items:center; gap:6px;">
           <span id="mEthDom" style="color:var(--txt); font-weight:bold; font-family:'JetBrains Mono',monospace; font-size:13px;">17.84%</span>
-          <span id="mEthDomChg" class="active-symbol-chg down" style="font-size:10px; padding:1px 4px;">-0.05%</span>
+          <span id="mEthDomChg" class="active-symbol-chg down" style="font-size:10px; padding:1px 0.05px;">-0.05%</span>
         </div>
       </div>
       <div style="display:flex; flex-direction:column; gap:4px;">
@@ -580,6 +658,8 @@
         </div>
       </div>
     </div>
+
+    <button class="bt-nav-btn" onclick="toggleBacktestPanel()" id="btOpenBtn">&#128202; Backtest</button>
 
     <div class="conn-status">
       <div class="conn-dot" id="connDot"></div>
@@ -3599,5 +3679,344 @@ setInterval(() => {
   globalBVol *= 0.99;
   globalSVol *= 0.99;
 }, 2000);
+
+// ==============================================
+// BACKTEST PANEL HTML (injected)
+// ==============================================
+(function() {
+  const html = `
+<div class="bt-panel" id="backtestPanel">
+  <div class="bt-header">
+    <div class="bt-title">&#128202; Strategy Backtester</div>
+    <button class="bt-close" onclick="toggleBacktestPanel()">&#215;</button>
+  </div>
+  <div class="bt-body">
+    <div class="bt-config-card">
+      <div class="bt-section-title">&#9881; Configuration</div>
+      <div class="bt-row">
+        <div class="bt-field"><label class="bt-label">Symbol</label><input class="bt-input" id="btSymbol" type="text" value="BTCUSDT" /></div>
+        <div class="bt-field"><label class="bt-label">Timeframe</label>
+          <select class="bt-select" id="btInterval">
+            <option value="15m">15 Minutes</option>
+            <option value="1h" selected>1 Hour</option>
+            <option value="4h">4 Hours</option>
+            <option value="1d">1 Day</option>
+          </select>
+        </div>
+      </div>
+      <div class="bt-row">
+        <div class="bt-field"><label class="bt-label">Candles</label>
+          <select class="bt-select" id="btLimit">
+            <option value="100">100</option>
+            <option value="200" selected>200</option>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+          </select>
+        </div>
+        <div class="bt-field"><label class="bt-label">Capital (USDT)</label><input class="bt-input" id="btCapital" type="number" value="10000" min="100" /></div>
+      </div>
+      <div class="bt-row">
+        <div class="bt-field"><label class="bt-label">Strategy</label>
+          <select class="bt-select" id="btStrategy" onchange="onBtStrategyChange()">
+            <option value="ma_cross">SMA Crossover</option>
+            <option value="ema_cross">EMA Crossover</option>
+            <option value="rsi">RSI Overbought/Oversold</option>
+            <option value="bb">Bollinger Bands</option>
+          </select>
+        </div>
+      </div>
+      <div class="bt-param-group visible" id="btParamMaCross">
+        <div class="bt-row" style="margin-bottom:0;">
+          <div class="bt-field"><label class="bt-label">Fast Period</label><input class="bt-input" id="btFastPeriod" type="number" value="10" min="2" /></div>
+          <div class="bt-field"><label class="bt-label">Slow Period</label><input class="bt-input" id="btSlowPeriod" type="number" value="30" min="3" /></div>
+        </div>
+      </div>
+      <div class="bt-param-group" id="btParamRsi">
+        <div class="bt-row" style="margin-bottom:0;">
+          <div class="bt-field"><label class="bt-label">RSI Period</label><input class="bt-input" id="btRsiPeriod" type="number" value="14" min="2" /></div>
+          <div class="bt-field"><label class="bt-label">Oversold</label><input class="bt-input" id="btRsiOversold" type="number" value="30" /></div>
+          <div class="bt-field"><label class="bt-label">Overbought</label><input class="bt-input" id="btRsiOverbought" type="number" value="70" /></div>
+        </div>
+      </div>
+      <div class="bt-param-group" id="btParamBb">
+        <div class="bt-row" style="margin-bottom:0;">
+          <div class="bt-field"><label class="bt-label">BB Period</label><input class="bt-input" id="btBbPeriod" type="number" value="20" min="5" /></div>
+          <div class="bt-field"><label class="bt-label">Std Dev</label><input class="bt-input" id="btBbMult" type="number" value="2" step="0.1" /></div>
+        </div>
+      </div>
+      <button class="bt-run-btn" id="btRunBtn" onclick="runBacktest()">&#9654; Run Backtest</button>
+    </div>
+    <div id="btResults" style="display:none;" class="bt-anim">
+      <div class="bt-config-card">
+        <div class="bt-section-title">&#127942; Performance Summary</div>
+        <div class="bt-metrics" id="btMetrics"></div>
+      </div>
+      <div class="bt-config-card">
+        <div class="bt-section-title">&#128200; Equity Curve</div>
+        <canvas id="btEquityCanvas" height="140"></canvas>
+      </div>
+      <div class="bt-config-card">
+        <div class="bt-section-title">&#128203; Trade Log</div>
+        <div class="bt-trade-log">
+          <div class="bt-trade-row bt-hdr"><span>Time</span><span>Side</span><span>Entry</span><span>Exit</span><span>PNL</span><span>PNL%</span></div>
+          <div id="btTradeLog"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+})();
+
+// ==============================================
+// BACKTESTING ENGINE
+// ==============================================
+
+
+function toggleBacktestPanel() {
+  const panel = document.getElementById('backtestPanel');
+  if (!panel) return;
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) {
+    const sym = typeof currentSymbol !== 'undefined' ? currentSymbol.toUpperCase() : 'BTCUSDT';
+    document.getElementById('btSymbol').value = sym;
+  }
+}
+
+function onBtStrategyChange() {
+  const s = document.getElementById('btStrategy').value;
+  document.getElementById('btParamMaCross').classList.toggle('visible', s === 'ma_cross' || s === 'ema_cross');
+  document.getElementById('btParamRsi').classList.toggle('visible', s === 'rsi');
+  document.getElementById('btParamBb').classList.toggle('visible', s === 'bb');
+}
+
+function btCalcSMA(closes, period) {
+  const result = new Array(closes.length).fill(null);
+  for (let i = period - 1; i < closes.length; i++) {
+    result[i] = closes.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0) / period;
+  }
+  return result;
+}
+
+function btCalcEMA(closes, period) {
+  const result = new Array(closes.length).fill(null);
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  result[period - 1] = ema;
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+    result[i] = ema;
+  }
+  return result;
+}
+
+function btCalcRSI(closes, period) {
+  const result = new Array(closes.length).fill(null);
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i <= period; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff >= 0) avgGain += diff / period; else avgLoss += Math.abs(diff) / period;
+  }
+  for (let i = period; i < closes.length; i++) {
+    if (i === period) { result[i] = 100 - 100 / (1 + (avgGain / (avgLoss || 0.0001))); continue; }
+    const diff = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
+    result[i] = 100 - 100 / (1 + (avgGain / (avgLoss || 0.0001)));
+  }
+  return result;
+}
+
+function btCalcBB(closes, period, mult) {
+  const mid = btCalcSMA(closes, period);
+  const upper = new Array(closes.length).fill(null);
+  const lower = new Array(closes.length).fill(null);
+  for (let i = period - 1; i < closes.length; i++) {
+    const slice = closes.slice(i - period + 1, i + 1);
+    const mean = mid[i];
+    const std = Math.sqrt(slice.reduce((s, v) => s + (v - mean) ** 2, 0) / period);
+    upper[i] = mean + mult * std;
+    lower[i] = mean - mult * std;
+  }
+  return { upper, lower, mid };
+}
+
+function btSignalMaCross(closes, fast, slow, useEMA) {
+  const fn = useEMA ? btCalcEMA : btCalcSMA;
+  const fl = fn(closes, fast), sl = fn(closes, slow);
+  return closes.map((_, i) => {
+    if (!fl[i] || !sl[i] || !fl[i-1] || !sl[i-1]) return null;
+    if (fl[i-1] < sl[i-1] && fl[i] > sl[i]) return 'long';
+    if (fl[i-1] > sl[i-1] && fl[i] < sl[i]) return 'short';
+    return null;
+  });
+}
+
+function btSignalRSI(closes, period, oversold, overbought) {
+  const rsi = btCalcRSI(closes, period);
+  return closes.map((_, i) => {
+    if (!rsi[i] || !rsi[i-1]) return null;
+    if (rsi[i-1] < oversold && rsi[i] >= oversold) return 'long';
+    if (rsi[i-1] > overbought && rsi[i] <= overbought) return 'short';
+    return null;
+  });
+}
+
+function btSignalBB(closes, period, mult) {
+  const { upper, lower } = btCalcBB(closes, period, mult);
+  return closes.map((v, i) => {
+    if (!upper[i] || !lower[i] || closes[i-1] === undefined) return null;
+    if (closes[i-1] <= lower[i-1] && v > lower[i]) return 'long';
+    if (closes[i-1] >= upper[i-1] && v < upper[i]) return 'short';
+    return null;
+  });
+}
+
+function btSimulate(candles, signals, capital) {
+  const trades = [], equity = [capital];
+  let bal = capital, pos = null;
+  const fmt = ts => new Date(ts).toLocaleDateString('id-ID', { month: 'short', day: '2-digit' });
+  for (let i = 1; i < candles.length; i++) {
+    const sig = signals[i], close = candles[i].close;
+    if (pos && sig && sig !== pos.side) {
+      const pnl = pos.side === 'long' ? (close - pos.entry) * pos.qty : (pos.entry - close) * pos.qty;
+      bal += pnl;
+      trades.push({ time: pos.time, side: pos.side, entry: pos.entry, exit: close, pnl, pct: pnl / pos.cost * 100 });
+      pos = null;
+    }
+    if (!pos && sig) pos = { side: sig, entry: close, time: fmt(candles[i].openTime), qty: bal / close, cost: bal };
+    let mark = bal;
+    if (pos) mark += pos.side === 'long' ? (close - pos.entry) * pos.qty : (pos.entry - close) * pos.qty;
+    equity.push(mark);
+  }
+  if (pos) {
+    const last = candles[candles.length - 1].close;
+    const pnl = pos.side === 'long' ? (last - pos.entry) * pos.qty : (pos.entry - last) * pos.qty;
+    bal += pnl;
+    trades.push({ time: pos.time, side: pos.side, entry: pos.entry, exit: last, pnl, pct: pnl / pos.cost * 100 });
+    equity[equity.length - 1] = bal;
+  }
+  return { trades, equity, final: bal };
+}
+
+function btDrawEquity(equity, initCap) {
+  const canvas = document.getElementById('btEquityCanvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 480, H = 140;
+  canvas.width = W; canvas.height = H;
+  const min = Math.min(...equity), max = Math.max(...equity), range = max - min || 1;
+  const pad = { t: 14, b: 20, l: 8, r: 8 };
+  ctx.clearRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(30,42,69,0.6)'; ctx.lineWidth = 0.5;
+  for (let j = 0; j <= 4; j++) {
+    const y = pad.t + (j / 4) * (H - pad.t - pad.b);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  }
+  const toX = i => pad.l + (i / (equity.length - 1)) * (W - pad.l - pad.r);
+  const toY = v => H - pad.b - ((v - min) / range) * (H - pad.t - pad.b);
+  const up = equity[equity.length - 1] >= initCap;
+  const grad = ctx.createLinearGradient(0, pad.t, 0, H - pad.b);
+  grad.addColorStop(0, up ? 'rgba(0,212,168,0.35)' : 'rgba(255,77,109,0.35)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.beginPath(); ctx.moveTo(toX(0), H - pad.b);
+  equity.forEach((v, i) => ctx.lineTo(toX(i), toY(v)));
+  ctx.lineTo(toX(equity.length - 1), H - pad.b); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
+  ctx.beginPath(); ctx.strokeStyle = up ? '#00d4a8' : '#ff4d6d'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  equity.forEach((v, i) => i === 0 ? ctx.moveTo(toX(i), toY(v)) : ctx.lineTo(toX(i), toY(v)));
+  ctx.stroke();
+  const baseY = toY(initCap);
+  ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad.l, baseY); ctx.lineTo(W - pad.r, baseY); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(136,146,164,0.9)'; ctx.font = '9px Inter'; ctx.textAlign = 'left';
+  ctx.fillText('$' + max.toLocaleString('en-US', {maximumFractionDigits:0}), pad.l + 2, pad.t + 8);
+  ctx.fillText('$' + min.toLocaleString('en-US', {maximumFractionDigits:0}), pad.l + 2, H - pad.b - 3);
+}
+
+function btMaxDrawdown(equity) {
+  let maxDD = 0, peak = equity[0];
+  for (const v of equity) {
+    if (v > peak) peak = v;
+    const dd = (peak - v) / peak * 100;
+    if (dd > maxDD) maxDD = dd;
+  }
+  return maxDD;
+}
+
+async function runBacktest() {
+  const btn = document.getElementById('btRunBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<div style="width:14px;height:14px;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;border-radius:50%;animation:spin 0.7s linear infinite;display:inline-block;"></div> Fetching Data...';
+  try {
+    const symbol = (document.getElementById('btSymbol').value || 'BTCUSDT').toUpperCase().replace('/', '');
+    const interval = document.getElementById('btInterval').value;
+    const limit = parseInt(document.getElementById('btLimit').value);
+    const capital = parseFloat(document.getElementById('btCapital').value) || 10000;
+    const strategy = document.getElementById('btStrategy').value;
+
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`Binance API error ${resp.status}: symbol "${symbol}" mungkin tidak valid`);
+    const raw = await resp.json();
+    const candles = raw.map(k => ({ openTime: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
+    const closes = candles.map(c => c.close);
+
+    let signals;
+    if (strategy === 'ma_cross') {
+      const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
+      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+      signals = btSignalMaCross(closes, f, s, false);
+    } else if (strategy === 'ema_cross') {
+      const f = +document.getElementById('btFastPeriod').value, s = +document.getElementById('btSlowPeriod').value;
+      if (f >= s) throw new Error('Fast period harus lebih kecil dari Slow period');
+      signals = btSignalMaCross(closes, f, s, true);
+    } else if (strategy === 'rsi') {
+      signals = btSignalRSI(closes, +document.getElementById('btRsiPeriod').value, +document.getElementById('btRsiOversold').value, +document.getElementById('btRsiOverbought').value);
+    } else if (strategy === 'bb') {
+      signals = btSignalBB(closes, +document.getElementById('btBbPeriod').value, +document.getElementById('btBbMult').value);
+    }
+
+    const { trades, equity, final } = btSimulate(candles, signals, capital);
+    const totalRet = final - capital, totalRetPct = totalRet / capital * 100;
+    const wins = trades.filter(t => t.pnl > 0), losses = trades.filter(t => t.pnl <= 0);
+    const winRate = trades.length ? wins.length / trades.length * 100 : 0;
+    const totalWinAmt = wins.reduce((s, t) => s + t.pnl, 0);
+    const totalLossAmt = losses.reduce((s, t) => s + t.pnl, 0);
+    const pf = totalLossAmt !== 0 ? Math.abs(totalWinAmt / totalLossAmt) : Infinity;
+    const maxDD = btMaxDrawdown(equity);
+    const isProfit = totalRet >= 0;
+    const fmtMoney = v => v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    document.getElementById('btMetrics').innerHTML = [
+      { lbl: 'Net PNL', val: `${isProfit?'+':''}$${fmtMoney(Math.abs(totalRet))}`, cls: isProfit?'green':'red' },
+      { lbl: 'Return %', val: `${isProfit?'+':''}${totalRetPct.toFixed(2)}%`, cls: isProfit?'green':'red' },
+      { lbl: 'Win Rate', val: `${winRate.toFixed(1)}%`, cls: winRate>=50?'green':'red' },
+      { lbl: 'Total Trades', val: trades.length, cls: '' },
+      { lbl: 'Profit Factor', val: isFinite(pf) ? pf.toFixed(2) : '&#8734;', cls: pf>=1?'green':'red' },
+      { lbl: 'Max Drawdown', val: `-${maxDD.toFixed(2)}%`, cls: 'red' },
+    ].map(m => `<div class="bt-metric"><div class="bt-metric-val ${m.cls}">${m.val}</div><div class="bt-metric-lbl">${m.lbl}</div></div>`).join('');
+
+    const res = document.getElementById('btResults');
+    res.style.display = 'block'; res.classList.add('bt-anim');
+    setTimeout(() => btDrawEquity(equity, capital), 50);
+
+    document.getElementById('btTradeLog').innerHTML = trades.length === 0
+      ? '<div style="padding:16px;text-align:center;color:var(--txt3);font-size:12px;">Tidak ada trade. Coba ubah parameter strategi.</div>'
+      : trades.map(t => `<div class="bt-trade-row ${t.pnl > 0 ? 'win' : 'loss'}">
+          <span style="color:var(--txt3);">${t.time}</span>
+          <span class="${t.side === 'long' ? 'bt-side-long' : 'bt-side-short'}">${t.side === 'long' ? 'LONG' : 'SHORT'}</span>
+          <span>${t.entry.toFixed(2)}</span>
+          <span>${t.exit.toFixed(2)}</span>
+          <span style="font-weight:700;color:${t.pnl>=0?'var(--green)':'var(--red)'}">${t.pnl>=0?'+':''}${t.pnl.toFixed(2)}</span>
+          <span style="color:${t.pct>=0?'var(--green)':'var(--red)'}">${t.pct>=0?'+':''}${t.pct.toFixed(2)}%</span>
+        </div>`).join('');
+  } catch (err) {
+    alert('Backtest Error: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#9654; Run Backtest';
+  }
+}
 
 </script>
