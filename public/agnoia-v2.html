@@ -662,25 +662,30 @@ function connectAll(sym){
   sym=sym.toLowerCase(); S.sym=sym;
   if(S.wsDepth) S.wsDepth.close();
   if(S.wsTrade) S.wsTrade.close();
+  if(S.wsFutures) S.wsFutures.close();
+  S.price=0; S.prevPrice=0; currentPrice=0;
   S.cvd=0; S.delta=0; S.buyVol=0; S.sellVol=0; S.vwapN=0; S.vwapD=0;
-  S.asks=[]; S.bids=[]; S.trades=[]; S.liquidations=[];
+  S.asks=[]; S.bids=[]; S.trades=[]; S.liquidations=[]; S.whaleEvents=[];
   $('tbSym').textContent=sym.replace('usdt','').toUpperCase()+'/USDT';
-  connectDepth(sym); connectTrades(sym);
+  connectDepth(sym); connectTrades(sym); connectFutures(sym);
   loadCandles(sym, S.tf); loadWhaleHistory(); loadFunding(sym); loadOI(sym); loadLiquidations(sym); load24h(sym);
+  renderOB(); renderChart(); renderLiq();
 }
 
 function connectDepth(sym){
   $('wsLbl').textContent='Connecting...';$('wsLbl').style.color='var(--yellow)';
-  const ws=new WebSocket(getBsWs(`/binance-proxy?stream=/stream?streams=${sym}@depth20@500ms`));
+  const ws=new WebSocket(getBsWs(`/binance-proxy?stream=${encodeURIComponent('/ws/'+sym+'@depth20@100ms')}`));
   S.wsDepth=ws;
   ws.onopen=()=>{$('wsLbl').textContent='Connected';$('wsLbl').style.color='var(--green)';};
   ws.onmessage=(e)=>{
     try{
-      const d=(JSON.parse(e.data).data||JSON.parse(e.data));
-      if(!d.asks) return;
-      S.asks=d.asks.map(r=>[+r[0],+r[1]]).slice(0,30);
-      S.bids=d.bids.map(r=>[+r[0],+r[1]]).slice(0,30);
-      renderOB(); updateImbalance();
+      const d=JSON.parse(e.data);
+      const asks = d.asks || d.a;
+      const bids = d.bids || d.b;
+      if(!asks) return;
+      S.asks=asks.map(r=>[+r[0],+r[1]]).slice(0,30);
+      S.bids=bids.map(r=>[+r[0],+r[1]]).slice(0,30);
+      renderOB(); updateImbalance(); buildSPL();
     }catch(ex){}
   };
   ws.onclose=()=>{$('wsLbl').textContent='Reconnecting...';$('wsLbl').style.color='var(--yellow)';setTimeout(()=>connectDepth(sym),3000);};
@@ -688,12 +693,12 @@ function connectDepth(sym){
 }
 
 function connectTrades(sym){
-  const ws=new WebSocket(getBsWs(`/binance-proxy?stream=/stream?streams=${sym}@aggTrade`));
+  const ws=new WebSocket(getBsWs(`/binance-proxy?stream=${encodeURIComponent('/ws/'+sym+'@aggTrade')}`));
   S.wsTrade=ws;
   ws.onopen=()=>{$('wsLbl').textContent='Connected';$('wsLbl').style.color='var(--green)';};
   ws.onmessage=(e)=>{
     try{
-      const t=(JSON.parse(e.data).data||JSON.parse(e.data));
+      const t=JSON.parse(e.data);
       if(!t.p) return;
       const price=+t.p, qty=+t.q, notional=price*qty, isBuy=!t.m;
       S.prevPrice=S.price; S.price=price; currentPrice=price;
@@ -709,6 +714,25 @@ function connectTrades(sym){
     }catch(ex){}
   };
   ws.onclose=()=>{$('wsLbl').textContent='Reconnecting...';$('wsLbl').style.color='var(--yellow)';setTimeout(()=>connectTrades(sym),3000);};
+  ws.onerror=()=>ws.close();
+}
+
+function connectFutures(sym){
+  const ws = new WebSocket(getBsWs(`/binance-proxy?origin=fstream.binance.com&stream=${encodeURIComponent('/ws/'+sym+'@forceOrder')}`));
+  S.wsFutures=ws;
+  ws.onmessage=(e)=>{
+    try {
+      const d = JSON.parse(e.data);
+      if (d.e === 'forceOrder') {
+        const o = d.o;
+        const ev = {price: +o.p, qty: +o.q, side: o.S, time: o.T, val: (+o.p)*(+o.q)};
+        S.liquidations.unshift(ev);
+        if(S.liquidations.length>100) S.liquidations.pop();
+        if(S.activeInd==='liq') renderInd();
+      }
+    }catch(ex){}
+  };
+  ws.onclose=()=>setTimeout(()=>connectFutures(sym),3000);
   ws.onerror=()=>ws.close();
 }
 
@@ -1067,35 +1091,66 @@ function renderChart(){
   const ctx=canvas.getContext('2d');
   const candles=S.candles; if(!candles.length) return;
   const rp=58,lp=6,tp=10,bp=14; const cW=W-lp-rp,cH=H-tp-bp;
-  const vis=Math.min(candles.length,Math.floor(cW/6));
-  const start=Math.max(0,candles.length-vis);
-  const vc=candles.slice(start);
+  
+  window.chartZoom = window.chartZoom || 1;
+  window.chartPan = window.chartPan || 0;
+  
+  const baseVis = Math.floor(cW/6);
+  const vis=Math.min(candles.length,Math.max(10,Math.floor(baseVis/window.chartZoom)));
+  let start=candles.length-vis-Math.floor(window.chartPan);
+  if(start<0){start=0;window.chartPan=candles.length-vis;}
+  if(start>candles.length-vis){start=candles.length-vis;window.chartPan=0;}
+  
+  const vc=candles.slice(start, start+vis);
+  if(!vc.length) return;
+  
   const prices=vc.flatMap(c=>[c.high,c.low]);
   const minP=Math.min(...prices),maxP=Math.max(...prices),pRange=maxP-minP||1;
   const toX=i=>lp+(i/vc.length)*cW+cW/vc.length/2;
   const toY=v=>tp+cH-((v-minP)/pRange)*cH;
+  
   ctx.clearRect(0,0,W,H); ctx.fillStyle='#040608'; ctx.fillRect(0,0,W,H);
   ctx.strokeStyle='rgba(26,42,58,.5)'; ctx.lineWidth=.5;
-  for(let i=0;i<=5;i++){const y=tp+(i/5)*cH;ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();ctx.fillStyle='rgba(106,138,170,.45)';ctx.font='8px IBM Plex Mono';ctx.textAlign='left';ctx.fillText(fmtP(maxP-(i/5)*pRange),W-rp+3,y+3);}
+  for(let i=0;i<=5;i++){
+    const y=tp+(i/5)*cH;
+    ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();
+    ctx.fillStyle='rgba(106,138,170,.45)';ctx.font='8px IBM Plex Mono';ctx.textAlign='left';
+    ctx.fillText(fmtP(maxP-(i/5)*pRange),W-rp+3,y+3);
+  }
+  
+  // Date axis
+  ctx.fillStyle='rgba(106,138,170,.45)';ctx.textAlign='center';
+  const timeStep = Math.max(1, Math.floor(vc.length/5));
+  for(let i=0; i<vc.length; i+=timeStep){
+    const x = toX(i);
+    const d = new Date(vc[i].closeTime);
+    ctx.fillText(d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0'), x, H-2);
+  }
+  ctx.textAlign='left';
+
   if(S.vwap>0&&S.vwap>=minP&&S.vwap<=maxP){const vy=toY(S.vwap);ctx.strokeStyle='rgba(245,166,35,.5)';ctx.lineWidth=1;ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(lp,vy);ctx.lineTo(W-rp,vy);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(245,166,35,.7)';ctx.font='7px IBM Plex Mono';ctx.fillText('VWAP '+fmtP(S.vwap),lp+2,vy-2);}
-  const cw=Math.max(2,(cW/vc.length)-1);
-  for(let i=0;i<vc.length;i++){const c=vc[i];const x=toX(i);const isUp=c.close>=c.open;const col=isUp?'#00d4a8':'#ff4d6d';ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,toY(c.high));ctx.lineTo(x,toY(c.low));ctx.stroke();const bt=toY(Math.max(c.open,c.close)),bb=toY(Math.min(c.open,c.close));ctx.fillStyle=col;ctx.fillRect(x-cw/2,bt,cw,Math.max(1,bb-bt));}
-  // Buy/Sell walls on chart
+  
+  const cw=Math.max(1.5,(cW/vc.length)-1);
+  for(let i=0;i<vc.length;i++){
+    const c=vc[i];const x=toX(i);const isUp=c.close>=c.open;const col=isUp?'#00d4a8':'#ff4d6d';
+    ctx.strokeStyle=col;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,toY(c.high));ctx.lineTo(x,toY(c.low));ctx.stroke();
+    const bt=toY(Math.max(c.open,c.close)),bb=toY(Math.min(c.open,c.close));
+    ctx.fillStyle=col;ctx.fillRect(x-cw/2,bt,cw,Math.max(1,bb-bt));
+  }
+  
   if(S.bids.length&&S.asks.length){
     const bigB=S.bids.reduce((m,[p,q])=>p*q>m[0]*m[1]?[p,q]:m,[0,0]);
-    if(bigB[0]*bigB[1]>300000&&bigB[0]>=minP&&bigB[0]<=maxP){const y=toY(bigB[0]);ctx.strokeStyle='rgba(0,212,168,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(0,212,168,.85)';ctx.font='bold 8px IBM Plex Mono';ctx.fillText(`█ BUY WALL $${fmtK(bigB[0]*bigB[1])}`,lp+2,y-3);}
+    if(bigB[0]*bigB[1]>300000&&bigB[0]>=minP&&bigB[0]<=maxP){const y=toY(bigB[0]);ctx.strokeStyle='rgba(0,212,168,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(0,212,168,.85)';ctx.font='bold 8px IBM Plex Mono';ctx.fillText(`█ BUY WALL ${fmtK(bigB[0]*bigB[1])}`,lp+2,y-3);}
     const bigA=S.asks.reduce((m,[p,q])=>p*q>m[0]*m[1]?[p,q]:m,[0,0]);
-    if(bigA[0]*bigA[1]>300000&&bigA[0]>=minP&&bigA[0]<=maxP){const y=toY(bigA[0]);ctx.strokeStyle='rgba(255,77,109,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(255,77,109,.85)';ctx.font='bold 8px IBM Plex Mono';ctx.fillText(`█ SELL WALL $${fmtK(bigA[0]*bigA[1])}`,lp+2,y+10);}
+    if(bigA[0]*bigA[1]>300000&&bigA[0]>=minP&&bigA[0]<=maxP){const y=toY(bigA[0]);ctx.strokeStyle='rgba(255,77,109,.45)';ctx.lineWidth=1.5;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(lp,y);ctx.lineTo(W-rp,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='rgba(255,77,109,.85)';ctx.font='bold 8px IBM Plex Mono';ctx.fillText(`█ SELL WALL ${fmtK(bigA[0]*bigA[1])}`,lp+2,y+10);}
   }
-  // Whale markers
   for(const ev of S.whaleEvents.slice(0,15)){
     const ci=vc.findIndex(c=>ev.time>=c.openTime&&ev.time<=c.closeTime);
     if(ci<0) continue;
     const x=toX(ci); const ib=ev.side==='buy'||ev.side==='bid';
     ctx.fillStyle=ib?'rgba(0,212,168,.75)':'rgba(255,77,109,.75)';
-    ctx.font='9px Arial'; ctx.fillText('🐋',x-5,ib?toY(ev.price)+12:toY(ev.price)-12);
+    ctx.font='9px Arial'; ctx.fillText(ib?'🐋':'🦈',x-5,ib?toY(ev.price)+12:toY(ev.price)-12);
   }
-  // Current price
   if(S.price>=minP&&S.price<=maxP){
     const py=toY(S.price); const isUp=S.price>=S.prevPrice;
     ctx.strokeStyle=isUp?'rgba(0,212,168,.7)':'rgba(255,77,109,.7)';
