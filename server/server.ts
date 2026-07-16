@@ -166,14 +166,14 @@ app.prepare().then(async () => {
     const targetUrl = `wss://${origin}${streamPath}`;
     const binanceWs = new WebSocket(targetUrl);
     
-    binanceWs.on('message', data => {
-      if (ws.readyState === WebSocket.OPEN) ws.send(data);
+    binanceWs.on('message', (data, isBinary) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(data, { binary: isBinary });
     });
     binanceWs.on('close', () => ws.close());
     binanceWs.on('error', err => { ws.close(); });
     
-    ws.on('message', data => {
-      if (binanceWs.readyState === WebSocket.OPEN) binanceWs.send(data);
+    ws.on('message', (data, isBinary) => {
+      if (binanceWs.readyState === WebSocket.OPEN) binanceWs.send(data, { binary: isBinary });
     });
     ws.on('close', () => binanceWs.close());
     ws.on('error', () => binanceWs.close());
