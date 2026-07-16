@@ -11,6 +11,7 @@ import { WhaleTracker } from './whaleTracker';
 import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST, STRATEGY_SCALPING_PULLBACK } from './backtest/engine';
 import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
 import { DEFAULT_EXEC } from './backtest/types';
+import { initDatabase } from './db';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -23,7 +24,8 @@ const handle = app.getRequestHandler();
 // Start 24/7 Whale Engine
 const whaleEngine = new WhaleTracker();
 
-app.prepare().then(() => {
+app.prepare().then(async () => {
+  await initDatabase();
   let wsServer: ArenaWSServer | null = null;
 
   const server = createServer((req, res) => {

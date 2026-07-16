@@ -1,19 +1,16 @@
 // ============================================================
-// DatasetLoader — reads JSONL log files produced by DataLogger
+// DatasetLoader — reads from PostgreSQL or JSONL fallback
 // and merges trade + snapshot events into a single sorted timeline.
 // ============================================================
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
+import { db } from '../db';
 import { TimelineEvent, RawTradeLog, SnapshotLog } from './types';
 
 export const DEFAULT_LOG_DIR = path.join(__dirname, '..', '..', 'data_logs');
 
-/**
- * Lists available JSONL log files in the log directory matching
- * the pattern: {symbol}_{type}_{date}.jsonl
- */
 export function listLogFiles(logDir: string, symbol: string): {
   tradeFiles: string[];
   snapshotFiles: string[];
@@ -34,10 +31,6 @@ export function listLogFiles(logDir: string, symbol: string): {
   return { tradeFiles, snapshotFiles };
 }
 
-/**
- * Reads a JSONL file line-by-line, yielding parsed JSON objects.
- * This is memory-efficient for large files.
- */
 async function* readJsonlFile(filePath: string): AsyncGenerator<any> {
   const fileStream = fs.createReadStream(filePath);
   const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
@@ -51,16 +44,88 @@ async function* readJsonlFile(filePath: string): AsyncGenerator<any> {
   }
 }
 
-/**
- * Loads and chronologically merges trade + snapshot events
- * from JSONL files within an optional time window.
- *
- * Returns a single sorted array of TimelineEvents.
- * 
- * STRICT NO-LOOKAHEAD: all events are sorted by time ONLY using
- * the event's own timestamp, never future data.
- */
 export async function loadTimeline(
+  logDir: string,
+  symbol: string,
+  fromMs?: number,
+  toMs?: number
+): Promise<TimelineEvent[]> {
+  const sym = symbol.toLowerCase();
+  const events: TimelineEvent[] = [];
+
+  // Check if we use Database
+  if (process.env.DATABASE_URL) {
+    console.log(`[DatasetLoader] Querying PostgreSQL for ${sym.toUpperCase()}...`);
+    
+    // Construct time filter
+    let timeFilter = '';
+    const params: any[] = [sym];
+    let pIdx = 2;
+    if (fromMs) {
+      timeFilter += ` AND local_time >= $${pIdx++}`;
+      params.push(fromMs);
+    }
+    if (toMs) {
+      timeFilter += ` AND local_time <= $${pIdx++}`;
+      params.push(toMs);
+    }
+
+    try {
+      // Query trades
+      const tradesRes = await db.query(`SELECT price, qty, is_maker, trade_time, local_time FROM trades WHERE symbol = $1 ${timeFilter}`, params);
+      for (const row of tradesRes.rows) {
+        events.push({
+          type: 'trade',
+          time: Number(row.trade_time || row.local_time),
+          data: {
+            e: 'aggTrade',
+            p: row.price.toString(),
+            q: row.qty.toString(),
+            m: row.is_maker,
+            T: Number(row.trade_time),
+            E: Number(row.local_time),
+            s: sym.toUpperCase(),
+            local_time: Number(row.local_time)
+          } as RawTradeLog
+        });
+      }
+
+      // Query snapshots
+      const snapRes = await db.query(`SELECT bids, asks, local_time FROM snapshots WHERE symbol = $1 ${timeFilter}`, params);
+      for (const row of snapRes.rows) {
+        events.push({
+          type: 'snapshot',
+          time: Number(row.local_time),
+          data: {
+            time: Number(row.local_time),
+            b: typeof row.bids === 'string' ? JSON.parse(row.bids) : row.bids,
+            a: typeof row.asks === 'string' ? JSON.parse(row.asks) : row.asks
+          } as SnapshotLog
+        });
+      }
+
+      if (events.length === 0) {
+        throw new Error(`No data found in database for symbol "${symbol}".`);
+      }
+
+    } catch (err: any) {
+      console.error(`[DatasetLoader] DB Error: ${err.message}. Falling back to file logging...`);
+      return await loadTimelineFromFile(logDir, symbol, fromMs, toMs);
+    }
+  } else {
+    // No DB configured, use files
+    return await loadTimelineFromFile(logDir, symbol, fromMs, toMs);
+  }
+
+  // Sort chronologically
+  events.sort((a, b) => a.time - b.time);
+  
+  console.log(`[DatasetLoader] Loaded ${events.length.toLocaleString()} events from Database for ${symbol.toUpperCase()}.`);
+  return events;
+}
+
+// Original file loader fallback
+async function loadTimelineFromFile(
   logDir: string,
   symbol: string,
   fromMs?: number,
@@ -77,7 +142,6 @@ export async function loadTimeline(
 
   const events: TimelineEvent[] = [];
 
-  // Load trade events
   for (const file of tradeFiles) {
     for await (const raw of readJsonlFile(file)) {
       const t = (raw as RawTradeLog).T || raw.local_time;
@@ -87,7 +151,6 @@ export async function loadTimeline(
     }
   }
 
-  // Load snapshot events
   for (const file of snapshotFiles) {
     for await (const raw of readJsonlFile(file)) {
       const t = (raw as SnapshotLog).time;
@@ -97,11 +160,10 @@ export async function loadTimeline(
     }
   }
 
-  // Sort strictly by time — this is the critical no-lookahead guarantee
   events.sort((a, b) => a.time - b.time);
 
   console.log(
-    `[DatasetLoader] Loaded ${events.length.toLocaleString()} events for ` +
+    `[DatasetLoader] Loaded ${events.length.toLocaleString()} events from Files for ` +
     `${symbol.toUpperCase()} ` +
     `(${tradeFiles.length} trade file(s), ${snapshotFiles.length} snapshot file(s)).`
   );
