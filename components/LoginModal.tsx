@@ -94,7 +94,7 @@ export default function LoginModal({ isOpen, onClose }: LoginModalProps) {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-primary-dim mb-4">
             <Shield className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="text-xl font-bold text-foreground">Order Book Arena</h2>
+          <h2 className="text-xl font-bold text-foreground">Agnoia Terminal</h2>
           <p className="text-sm text-text-secondary mt-2">
             Masukkan username dan password akun Anda
           </p>

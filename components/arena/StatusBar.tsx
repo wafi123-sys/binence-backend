@@ -79,7 +79,7 @@ export default function StatusBar() {
 
       {/* Center: brand */}
       <div className="sb-center">
-        <span className="sb-brand">ORDER BOOK ARENA</span>
+        <span className="sb-brand">AGNOIA TERMINAL</span>
       </div>
 
       {/* Right: PnL + equity + user */}

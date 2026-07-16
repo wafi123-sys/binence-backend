@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Order Book Arena | Professional Order Book Simulator",
+  title: "Agnoia Terminal | Professional Order Book Simulator",
   description:
     "Real-time Order Book simulator with Price-Time Priority Matching Engine, Candlestick Charts, and multiplayer support. Learn how stock exchange order books work.",
   keywords: [
