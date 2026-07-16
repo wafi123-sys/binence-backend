@@ -3,10 +3,10 @@
 import React, { useState, useEffect } from 'react';
 
 export default function OrderBookBinance2() {
-  const [url, setUrl] = useState('/orderbook.html');
+  const [url, setUrl] = useState('/agnoia-v2.html');
 
   useEffect(() => {
-    setUrl(`/orderbook.html?v=${Date.now()}`);
+    setUrl(`/agnoia-v2.html?v=${Date.now()}`);
   }, []);
 
   return (
