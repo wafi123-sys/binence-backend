@@ -4097,7 +4097,7 @@ async function runBacktest() {
     let trades = [], equity = [], totalRet = 0, totalRetPct = 0, winRate = 0, pf = Infinity, maxDD = 0, isProfit = false, finalCap = capital;
 
     if (isOrderFlow) {
-      const apiResp = await fetch('https://binance-backend-production.up.railway.app/api/backtest', {
+      const apiResp = await fetch('/api/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol, strategy, capital })
