@@ -160,24 +160,51 @@ app.prepare().then(async () => {
     const streamPath = url.searchParams.get('stream');
     const origin = url.searchParams.get('origin') || 'data-stream.binance.vision';
     if (!streamPath) {
-      ws.close();
+      ws.close(1008, 'Missing stream parameter');
       return;
     }
     const targetUrl = `wss://${origin}${streamPath}`;
-    const binanceWs = new WebSocket(targetUrl);
+    console.log(`[Proxy] Connecting to: ${targetUrl}`);
+
+    // Add browser-like headers so Binance doesn't reject the connection
+    const binanceWs = new WebSocket(targetUrl, {
+      headers: {
+        'Origin': 'https://www.binance.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+      },
+    });
     
+    binanceWs.on('open', () => {
+      console.log(`[Proxy] Connected to Binance: ${targetUrl}`);
+    });
+
+    binanceWs.on('ping', (data) => {
+      // Respond to Binance pings so connection stays alive
+      binanceWs.pong(data);
+    });
+
     binanceWs.on('message', (data, isBinary) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data, { binary: isBinary });
     });
-    binanceWs.on('close', () => ws.close());
-    binanceWs.on('error', err => { ws.close(); });
+    binanceWs.on('close', (code, reason) => {
+      console.log(`[Proxy] Binance closed: ${code} ${reason}`);
+      ws.close();
+    });
+    binanceWs.on('error', err => {
+      console.error(`[Proxy] Binance error: ${err.message}`);
+      ws.close();
+    });
     
+    ws.on('ping', (data) => ws.pong(data));
     ws.on('message', (data, isBinary) => {
       if (binanceWs.readyState === WebSocket.OPEN) binanceWs.send(data, { binary: isBinary });
     });
     ws.on('close', () => binanceWs.close());
     ws.on('error', () => binanceWs.close());
   });
+
 
   // Start Arena WS with noServer
   wsServer = new ArenaWSServer({ noServer: true });
