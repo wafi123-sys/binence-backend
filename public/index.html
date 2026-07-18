@@ -627,6 +627,19 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--white);font-fa
       <div class="ai-sec-t bloomberg-panel-header"><span class="bloomberg-panel-num">13</span> <span class="bloomberg-panel-title">CONTEXT ENGINE</span> <span class="bloomberg-go">&lt;GO&gt;</span></div>
       <div style="display:flex;flex-wrap:wrap;gap:3px;" id="ctxTags"></div>
     </div>
+    <div class="ai-sec">
+      <div class="ai-sec-t bloomberg-panel-header">
+        <span class="bloomberg-panel-num">14</span> <span class="bloomberg-panel-title">ENTRY SIGNALS</span> <span class="bloomberg-go">&lt;GO&gt;</span>
+        <span id="signalFeedStatus" style="margin-left:auto;font-size:8px;font-family:var(--mono);font-weight:700;color:var(--yellow);padding:1px 5px;border-radius:2px;background:rgba(255,193,7,.12);">CONNECTING</span>
+      </div>
+      <div id="signalFeed" style="max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:9px;">
+        <div style="color:var(--t4);padding:6px;text-align:center;">Waiting for AI entry signals...</div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:5px;padding-top:5px;border-top:1px solid var(--b1);">
+        <span style="font-size:8px;color:var(--t4);font-family:var(--mono);">TOTAL SIGNALS</span>
+        <span style="font-size:13px;font-family:var(--mono);font-weight:700;color:var(--accent);" id="signalCount">0</span>
+      </div>
+    </div>
   </div>
 
 </div><!-- /body -->
@@ -2108,4 +2121,127 @@ function runMonteCarlo() {
   ctx.fillText('Max: $' + maxEq.toFixed(0), 5, 15);
   ctx.fillText('Min: $' + minEq.toFixed(0), 5, H - 5);
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// AGNOIA SIGNAL FEED — WebSocket Client for AI Entry Signals
+// ═══════════════════════════════════════════════════════════════════
+(function initSignalFeed() {
+  let signalWs = null;
+  let signalTotal = 0;
+  let reconnectTimer = null;
+
+  function getSignalWsUrl() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${proto}//${location.host}/agnoia-signals`;
+  }
+
+  function connectSignalFeed() {
+    if (signalWs && signalWs.readyState <= 1) return; // already open/connecting
+    
+    const statusEl = document.getElementById('signalFeedStatus');
+    if (statusEl) { statusEl.textContent = 'CONNECTING'; statusEl.style.color = 'var(--yellow)'; statusEl.style.background = 'rgba(255,193,7,.12)'; }
+
+    signalWs = new WebSocket(getSignalWsUrl());
+
+    signalWs.onopen = () => {
+      console.log('[SignalFeed] Connected to AGNOIA Signal Feed');
+      if (statusEl) { statusEl.textContent = 'LIVE'; statusEl.style.color = 'var(--green)'; statusEl.style.background = 'rgba(0,212,168,.15)'; }
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    };
+
+    signalWs.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'ENTRY_SIGNAL') {
+          renderSignal(msg.data);
+        } else if (msg.type === 'CONNECTED') {
+          console.log('[SignalFeed]', msg.message);
+        }
+      } catch (err) {
+        console.error('[SignalFeed] Parse error:', err);
+      }
+    };
+
+    signalWs.onclose = () => {
+      console.log('[SignalFeed] Disconnected, reconnecting in 5s...');
+      if (statusEl) { statusEl.textContent = 'RECONNECTING'; statusEl.style.color = 'var(--red)'; statusEl.style.background = 'rgba(255,77,109,.12)'; }
+      reconnectTimer = setTimeout(connectSignalFeed, 5000);
+    };
+
+    signalWs.onerror = () => signalWs.close();
+  }
+
+  function renderSignal(data) {
+    signalTotal++;
+    const countEl = document.getElementById('signalCount');
+    if (countEl) countEl.textContent = signalTotal;
+
+    const feed = document.getElementById('signalFeed');
+    if (!feed) return;
+
+    // Clear placeholder text on first signal
+    if (signalTotal === 1) feed.innerHTML = '';
+
+    const isLong = data.direction === 'LONG';
+    const color = isLong ? 'var(--green)' : 'var(--red)';
+    const arrow = isLong ? '▲' : '▼';
+    const bg = isLong ? 'rgba(0,212,168,.08)' : 'rgba(255,77,109,.08)';
+    const border = isLong ? 'rgba(0,212,168,.3)' : 'rgba(255,77,109,.3)';
+    const time = new Date(data.timestamp).toLocaleTimeString('en-GB', { hour12: false });
+    const price = data.price ? '$' + Number(data.price).toLocaleString(undefined, { minimumFractionDigits: 2 }) : '—';
+
+    const row = document.createElement('div');
+    row.style.cssText = `padding:5px 6px;border-bottom:1px solid var(--b1);background:${bg};border-left:2px solid ${border};animation:fadeIn .3s ease;`;
+    row.innerHTML = `
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
+        <span style="color:${color};font-weight:bold;font-size:11px;">${arrow} ${data.direction}</span>
+        <span style="color:var(--t2);font-size:9px;">${data.symbol.toUpperCase()}</span>
+        <span style="margin-left:auto;color:var(--t4);font-size:8px;">${time}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="color:var(--t3);font-size:8px;">Strategy: <span style="color:var(--accent);">${data.strategy}</span></span>
+        <span style="color:var(--t3);font-size:8px;">Conf: <span style="color:${color};">${data.confidence.toFixed(1)}%</span></span>
+        <span style="color:var(--t3);font-size:8px;">Price: <span style="color:var(--t1);">${price}</span></span>
+      </div>
+    `;
+
+    // Insert at the top (latest first)
+    feed.insertBefore(row, feed.firstChild);
+
+    // Keep max 50 entries
+    while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+
+    // Flash the panel header
+    const hdr = document.querySelector('#signalCount');
+    if (hdr) { hdr.style.color = color; setTimeout(() => hdr.style.color = 'var(--accent)', 2000); }
+
+    // Play notification beep
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain); gain.connect(audioCtx.destination);
+      osc.type = 'sine'; osc.frequency.value = isLong ? 880 : 440;
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+      osc.start(audioCtx.currentTime); osc.stop(audioCtx.currentTime + 0.3);
+    } catch(e) {}
+
+    // Show toast notification at bottom
+    showSignalToast(data, color, arrow);
+  }
+
+  function showSignalToast(data, color, arrow) {
+    const toast = document.createElement('div');
+    toast.style.cssText = `position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid ${color};border-radius:6px;padding:8px 16px;z-index:99999;font-family:var(--mono);font-size:11px;color:var(--t1);box-shadow:0 4px 20px rgba(0,0,0,.5);animation:fadeIn .3s ease;display:flex;align-items:center;gap:10px;`;
+    toast.innerHTML = `<span style="color:${color};font-weight:bold;font-size:14px;">${arrow}</span>
+      <span><strong style="color:${color};">${data.direction}</strong> ${data.symbol.toUpperCase()} @ ${data.price ? '$'+Number(data.price).toLocaleString() : '—'}</span>
+      <span style="color:var(--t4);font-size:9px;">${data.strategy} · ${data.confidence.toFixed(0)}%</span>`;
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity .5s'; setTimeout(() => toast.remove(), 500); }, 5000);
+  }
+
+  // Auto-connect when page loads
+  connectSignalFeed();
+})();
 </script></body></html>

@@ -22,8 +22,10 @@ import { SpoofDetector } from './detectors/spoofDetector';
 import { AbsorptionDetector } from './detectors/absorptionDetector';
 import { MigrationDetector } from './detectors/migrationDetector';
 import { TrapStopHuntDetector } from './detectors/trapStopHuntDetector';
+import { EventEmitter } from 'events';
 
 export class AgnoiaOrchestrator {
+  public events = new EventEmitter();
   private symbols: string[];
   
   private streamManager: BinanceStreamManager;
@@ -151,7 +153,15 @@ export class AgnoiaOrchestrator {
             console.log(`[ENTRY] ${symbol} | Strategy: ${strategy.name} | Dir: ${decision.direction.toUpperCase()} | Conf: ${decision.confidence.toFixed(1)}`);
             globalJournal.logDecision(symbol, decision, probability, conflict, context, entryDecision.checks);
             
-            // NOTE: Here you would emit to WebSocket so the frontend can show it
+            // Broadcast to WebSocket clients
+            this.events.emit('ENTRY_SIGNAL', {
+              symbol,
+              strategy: strategy.name,
+              direction: decision.direction.toUpperCase(),
+              confidence: decision.confidence,
+              price: entryDecision.entryPrice,
+              timestamp: Date.now()
+            });
           }
         }
       }

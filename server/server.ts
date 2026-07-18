@@ -315,12 +315,46 @@ app.prepare().then(async () => {
   });
 
 
-  // Arena WS is completely removed
+  // ── AGNOIA SIGNAL WebSocket ──────────────────────────────────
+  // Broadcasts AI entry signals from Orchestrator to all connected browsers
+  const signalWss = new WebSocketServer({ noServer: true });
+  const signalClients = new Set<WebSocket>();
+
+  signalWss.on('connection', (ws) => {
+    signalClients.add(ws);
+    console.log(`[SignalWS] Client connected (${signalClients.size} total)`);
+    
+    // Send connection confirmation
+    ws.send(JSON.stringify({ type: 'CONNECTED', message: 'AGNOIA Signal Feed Active', timestamp: Date.now() }));
+
+    ws.on('close', () => {
+      signalClients.delete(ws);
+      console.log(`[SignalWS] Client disconnected (${signalClients.size} remaining)`);
+    });
+    ws.on('error', () => signalClients.delete(ws));
+  });
+
+  // Wire Orchestrator events → WebSocket broadcast
+  agnoiaEngine.events.on('ENTRY_SIGNAL', (signal: any) => {
+    const payload = JSON.stringify({ type: 'ENTRY_SIGNAL', data: signal });
+    console.log(`[SignalWS] Broadcasting ENTRY: ${signal.symbol} ${signal.direction} (${signalClients.size} clients)`);
+    for (const client of signalClients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(payload);
+      }
+    }
+  });
+
+  // Route upgrade requests
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     if (url.pathname === '/binance-proxy') {
       binanceProxyWss.handleUpgrade(req, socket, head, ws => {
         binanceProxyWss.emit('connection', ws, req);
+      });
+    } else if (url.pathname === '/agnoia-signals') {
+      signalWss.handleUpgrade(req, socket, head, ws => {
+        signalWss.emit('connection', ws, req);
       });
     } else {
       socket.destroy();
