@@ -809,7 +809,9 @@ const clamp = (v,mn,mx) => Math.min(Math.max(v,mn),mx);
 // • State •
 const S = {
   sym:'btcusdt', tf:'1m', price:0, prevPrice:0,
-  asks:[], bids:[], trades:[], candles:[], whaleEvents:[], priceLevels:[], timeline:[], journal:[], alerts:[], liquidations:[],
+  asks:[], bids:[], trades:[], candles:[], whaleEvents:[], priceLevels:[], timeline:[], 
+  journal: (() => { try { return JSON.parse(sessionStorage.getItem('agnoia_journal')) || []; } catch(e) { return []; } })(), 
+  alerts:[], liquidations:[],
   cvd:0, delta:0, buyVol:0, sellVol:0, vwapN:0, vwapD:0, vwap:0, atr:0, oi:0, oiPrev:0, funding:0, vol24h:0, high24h:0, low24h:0,
   evidence:{buyWall:0,sellWall:0,delta:0,cvd:0,oi:0,funding:0,whale:0,absorption:0,iceberg:0,velocity:0},
   prob:{acc:0,dist:0,trap:0,neutral:100},
@@ -1147,9 +1149,13 @@ function renderEvidence(){
   $('evTotal').textContent = score;
   $('aiNum').textContent = score;
   // Track AI Score history for chart
-  if (!S.aiScoreHistory) S.aiScoreHistory = [];
+  if (!S.aiScoreHistory) {
+    try { S.aiScoreHistory = JSON.parse(sessionStorage.getItem('agnoia_aiScoreHistory')) || []; }
+    catch(e) { S.aiScoreHistory = []; }
+  }
   S.aiScoreHistory.push({ score, time: Date.now() });
   if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
+  try { sessionStorage.setItem('agnoia_aiScoreHistory', JSON.stringify(S.aiScoreHistory)); } catch(e){}
   
   const badge=$('aiBadge'), num=$('aiNum');
   if(score>=100){num.style.color='var(--green)';badge.style.borderColor='rgba(0,212,168,.3)';badge.style.background='rgba(0,212,168,.08)';}
@@ -1337,8 +1343,10 @@ function renderAICopilot(){
 }
 
 function addJournal(ph,msg,sc){
+  if (!S.journal) S.journal = [];
   S.journal.unshift({time:new Date().toLocaleTimeString('id-ID'),ph,msg,sc});
   if(S.journal.length>50) S.journal.pop();
+  try { sessionStorage.setItem('agnoia_journal', JSON.stringify(S.journal)); } catch(e){}
 }
 
 // • Timeline •
