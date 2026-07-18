@@ -1,5 +1,3 @@
-import OrderBookBinance2 from '@/components/OrderBookBinance2';
-
 export default function Home() {
-  return <OrderBookBinance2 />;
+  return <iframe src='/index.html' style={{width:'100vw',height:'100vh',border:'none',display:'block',margin:0,padding:0}} />;
 }

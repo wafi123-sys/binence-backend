@@ -7,8 +7,8 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import next from 'next';
-import { ArenaWSServer } from './wsServer';
-import { WhaleTracker } from './whaleTracker';
+import { AgnoiaOrchestrator } from './core/orchestrator';
+import { BackgroundEngines, globalBackgroundState } from './backgroundEngines';
 import { BacktestEngine, ALL_STRATEGIES, STRATEGY_VERIFIED_WALL_BOUNCE, STRATEGY_CVD_DIVERGENCE_FADE, STRATEGY_COMPOSITE_TRUST, STRATEGY_SCALPING_PULLBACK, STRATEGY_LIQUIDITY_SWEEP } from './backtest/engine';
 import { GridSearchRunner } from './backtest/gridSearch';
 import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
@@ -23,24 +23,50 @@ const wsPort = parseInt(process.env.WS_PORT || '3001', 10);
 const app = next({ dev, hostname, port: nextPort });
 const handle = app.getRequestHandler();
 
-// Start 24/7 Whale Engine
-const whaleEngine = new WhaleTracker();
+// Start 24/7 Whale Engine (V3)
+const agnoiaEngine = new AgnoiaOrchestrator();
+agnoiaEngine.start();
 
 app.prepare().then(async () => {
   await initDatabase();
-  let wsServer: ArenaWSServer | null = null;
+  const bgEngines = new BackgroundEngines(); // Starts probability simulation
 
   const server = createServer((req, res) => {
     if (req.url && req.url.startsWith('/api/whale-history')) {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const symbol = url.searchParams.get('symbol') || 'btcusdt';
       res.setHeader('Content-Type', 'application/json');
-      // Fix CORS for local dev if needed
       res.setHeader('Access-Control-Allow-Origin', '*'); 
-      res.end(JSON.stringify(whaleEngine.getHistory(symbol)));
+      res.end(JSON.stringify({ 
+        events: [], 
+        journeys: [], 
+        topVolumeNodes: [],
+        message: "Endpoint disabled in V3 migration. Frontend uses WebSocket."
+      }));
       return;
     }
-    // ── /api/backtest ─────────────────────────────────────────
+    // ── /api/strategy-state ──────────────────────────────
+    if (req.url && req.url.startsWith('/api/strategy-state')) {
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      const responseData = {
+        type: globalBackgroundState.strategyHistory[0]?.type || 'LONG',
+        history: globalBackgroundState.strategyHistory,
+        probState: globalBackgroundState.probState,
+        aiPhase: globalBackgroundState.aiPhase,
+        entryScore: globalBackgroundState.entryScore,
+        exitScore: globalBackgroundState.exitScore,
+        liquidations: globalBackgroundState.liquidations
+      };
+      res.end(JSON.stringify(responseData));
+      return;
+    }
+    if (req.url && req.url.startsWith('/api/liquidations')) {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(globalBackgroundState.liquidations));
+      return;
+    }
+
     if (req.url && req.url.startsWith('/api/backtest')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -138,11 +164,7 @@ app.prepare().then(async () => {
     if (req.url === '/api/market-data') {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*'); 
-      if (wsServer) {
-        res.end(JSON.stringify(wsServer.getEngine().getOHLCData()));
-      } else {
-        res.end(JSON.stringify({ error: 'Server not ready' }));
-      }
+      res.end(JSON.stringify({ error: 'Market data simulator is deprecated.' }));
       return;
     }
     if (req.url === '/openapi.json') {
@@ -293,9 +315,7 @@ app.prepare().then(async () => {
   });
 
 
-  // Start Arena WS with noServer
-  wsServer = new ArenaWSServer({ noServer: true });
-
+  // Arena WS is completely removed
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     if (url.pathname === '/binance-proxy') {
@@ -303,11 +323,7 @@ app.prepare().then(async () => {
         binanceProxyWss.emit('connection', ws, req);
       });
     } else {
-      if (wsServer) {
-        wsServer.getWss().handleUpgrade(req, socket, head, ws => {
-          wsServer!.getWss().emit('connection', ws, req);
-        });
-      }
+      socket.destroy();
     }
   });
 
@@ -321,7 +337,6 @@ app.prepare().then(async () => {
   // Graceful shutdown
   const shutdown = () => {
     console.log('\n[Server] Shutting down...');
-    wsServer.shutdown();
     server.close(() => process.exit(0));
   };
 

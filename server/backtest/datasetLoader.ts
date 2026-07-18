@@ -72,7 +72,13 @@ export async function loadTimeline(
 
     try {
       // Query trades
-      const tradesRes = await db.query(`SELECT price, qty, is_maker, trade_time, local_time FROM trades WHERE symbol = $1 ${timeFilter}`, params);
+      const tradesRes = await db.query(`
+        SELECT price, qty, is_maker, trade_time, local_time 
+        FROM trades 
+        WHERE symbol = $1 ${timeFilter} 
+        ORDER BY local_time DESC 
+        LIMIT 5000
+      `, params);
       for (const row of tradesRes.rows) {
         events.push({
           type: 'trade',
@@ -91,7 +97,13 @@ export async function loadTimeline(
       }
 
       // Query snapshots
-      const snapRes = await db.query(`SELECT bids, asks, local_time FROM snapshots WHERE symbol = $1 ${timeFilter}`, params);
+      const snapRes = await db.query(`
+        SELECT bids, asks, local_time 
+        FROM snapshots 
+        WHERE symbol = $1 ${timeFilter} 
+        ORDER BY local_time DESC 
+        LIMIT 500
+      `, params);
       for (const row of snapRes.rows) {
         events.push({
           type: 'snapshot',

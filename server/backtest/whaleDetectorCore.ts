@@ -104,6 +104,11 @@ export class WhaleDetectorCore {
    * Feed a raw aggTrade message exactly as received from Binance
    * (or from a replayed log file).
    */
+  public setVol24h(symbol: string, vol24h: number) {
+    const state = this.getState(symbol);
+    state.vol24h = vol24h;
+  }
+
   public ingestAggTrade(
     symbol: string,
     price: number,

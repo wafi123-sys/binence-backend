@@ -73,7 +73,7 @@ export class WSClient {
         this.url = 'wss://essentially-receive-place-ebony.trycloudflare.com';
       } else {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        this.url = `${protocol}//${hostname}:3001`;
+        this.url = `${protocol}//${window.location.host}`;
       }
     } else {
       this.url = 'ws://localhost:3001';

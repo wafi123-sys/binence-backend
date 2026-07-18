@@ -286,6 +286,14 @@ export class BacktestEngine {
     else if (intervalStr === '1d') intervalMs = 86400000;
 
     const sym = symbol.toLowerCase();
+    
+    // Estimate 24h volume from the dataset for accurate whale floors
+    const tradesOnly = timeline.filter(e => e.type === 'trade') as { type: 'trade', time: number, data: RawTradeLog }[];
+    const totalVolume = tradesOnly.reduce((s, e) => s + (parseFloat(e.data.p) * parseFloat(e.data.q)), 0);
+    const durationMs = timeline.length > 1 ? timeline[timeline.length - 1].time - timeline[0].time : 86400000;
+    const vol24h = (totalVolume / (durationMs || 86400000)) * 86400000;
+    this.detector.setVol24h(sym, vol24h);
+
     const trades: BacktestTrade[] = [];
     const equity: { time: number; value: number }[] = [];
     let balance = startingCapital;
@@ -352,17 +360,29 @@ export class BacktestEngine {
             const entrySide = typeof entryResult === 'string' ? entryResult : entryResult.side;
             if (entrySide === 'long' || strategy.allowShort) {
               const execPrice = (typeof entryResult !== 'string' && entryResult.entryPrice) ? entryResult.entryPrice : price * (1 + (entrySide === 'long' ? slipRate : -slipRate));
-              const entryFee = balance * feeRate;
-              const effectiveCapital = balance - entryFee;
+              const dynamicSl = typeof entryResult !== 'string' ? entryResult.stopLoss : undefined;
+              const dynamicTp = typeof entryResult !== 'string' ? entryResult.takeProfit : undefined;
+              
+              let allocatedCapital = balance * 0.1; // Default 10% of capital if no SL
+              if (dynamicSl && dynamicSl !== execPrice) {
+                const slDistancePct = Math.abs(execPrice - dynamicSl) / execPrice;
+                allocatedCapital = (balance * 0.02) / slDistancePct; // 2% risk
+                if (allocatedCapital > balance) allocatedCapital = balance; // Cap at 1x leverage for backtest consistency
+              }
+              
+              const entryFee = allocatedCapital * feeRate;
+              const cost = allocatedCapital - entryFee;
+              const qty = cost / execPrice;
+
               position = {
                 side: entrySide,
                 entryPrice: execPrice,
                 entryTime: event.time,
-                qty: effectiveCapital / execPrice,
-                cost: effectiveCapital,
+                qty: qty,
+                cost: cost,
                 strategyName: strategy.name,
-                dynamicSl: typeof entryResult !== 'string' ? entryResult.stopLoss : undefined,
-                dynamicTp: typeof entryResult !== 'string' ? entryResult.takeProfit : undefined,
+                dynamicSl,
+                dynamicTp,
               };
             }
           }
@@ -517,11 +537,11 @@ export class BacktestEngine {
     const totalWin = wins.reduce((s, t) => s + t.netPnl, 0);
     const totalLoss = Math.abs(losses.reduce((s, t) => s + t.netPnl, 0));
 
-    // Sharpe ratio (simplified, daily-like approximation)
+    // Sharpe ratio (un-annualized for scalping/high-frequency)
     const returns = trades.map(t => t.pct / 100);
     const meanR = returns.reduce((a, b) => a + b, 0) / (returns.length || 1);
     const stdR = Math.sqrt(returns.reduce((a, b) => a + (b - meanR) ** 2, 0) / (returns.length || 1));
-    const sharpe = stdR > 0 ? (meanR / stdR) * Math.sqrt(252) : 0;
+    const sharpe = stdR > 0 ? (meanR / stdR) * Math.sqrt(trades.length > 0 ? trades.length : 1) : 0;
 
     // Max drawdown
     let maxDD = 0, peak = startCap;

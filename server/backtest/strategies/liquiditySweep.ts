@@ -100,18 +100,32 @@ export class LiquiditySweepTracker {
     if (this.htfCandles.length < lookback) return 'range';
     const recent = this.htfCandles.slice(-lookback);
     
-    let hh = 0, hl = 0, lh = 0, ll = 0;
+    let hhCount = 0, hlCount = 0, lhCount = 0, llCount = 0;
+    let lastHigh = 0, lastLow = Infinity;
+
     for (let i = 2; i < recent.length - 2; i++) {
       const c = recent[i];
+      // Pivot High
       if (c.high > recent[i-1].high && c.high > recent[i-2].high && c.high > recent[i+1].high && c.high > recent[i+2].high) {
-        if (hh > 0 && c.high > recent[hh].high) hh++; else hh = 1;
+        if (lastHigh > 0) {
+           if (c.high > lastHigh) { hhCount++; lhCount = 0; }
+           else if (c.high < lastHigh) { lhCount++; hhCount = 0; }
+        }
+        lastHigh = c.high;
       }
+      // Pivot Low
       if (c.low < recent[i-1].low && c.low < recent[i-2].low && c.low < recent[i+1].low && c.low < recent[i+2].low) {
-        if (ll > 0 && c.low < recent[ll].low) ll++; else ll = 1;
+        if (lastLow < Infinity) {
+           if (c.low > lastLow) { hlCount++; llCount = 0; }
+           else if (c.low < lastLow) { llCount++; hlCount = 0; }
+        }
+        lastLow = c.low;
       }
     }
-    if (hh >= 2 && hl >= 2) return 'up';
-    if (ll >= 2 && lh >= 2) return 'down';
+    
+    // Require at least 1 higher high and 1 higher low for an uptrend
+    if (hhCount >= 1 && hlCount >= 1) return 'up';
+    if (llCount >= 1 && lhCount >= 1) return 'down';
     return 'range';
   }
 
