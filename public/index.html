@@ -1685,11 +1685,14 @@ function renderInd(){
       return;
     }
     const scores = hist.map(h => h.score);
-    const mn = Math.min(...scores, 0);
-    const mx = Math.max(...scores, 150);
+    let mn = Math.min(...scores);
+    let mx = Math.max(...scores);
+    if (mx === mn) { mn -= 50; mx += 50; }
+    mn = Math.min(mn, -50);
+    mx = Math.max(mx, 150);
     const rng = mx - mn || 1;
     const toX = i => (i / (scores.length - 1)) * W;
-    const toY = v => H - ((v - mn) / rng) * H * 0.85 - H * 0.05;
+    const toY = v => H - ((v - mn) / rng) * H * 0.7 - H * 0.15;
 
     // Draw zone backgrounds
     const y100 = toY(100), y60 = toY(60);
@@ -1721,7 +1724,7 @@ function renderInd(){
     ctx.lineTo(toX(scores.length - 1), H); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 
     // Draw the main line (color segments)
-    ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineWidth = 2.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     for (let i = 1; i < scores.length; i++) {
       const sc = scores[i];
       ctx.strokeStyle = sc >= 100 ? '#00d4a8' : sc >= 60 ? '#f5a623' : '#ff4d6d';
