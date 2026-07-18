@@ -55,6 +55,8 @@ export class AgnoiaOrchestrator {
   private probabilityEngine = new ProbabilityEngine();
   private entryGate = new EntryGate();
   
+  private lastBroadcastTime: number = 0;
+  
   private strategies = [
     new TrendFollowingStrategy(),
     new MeanReversionStrategy()
@@ -110,7 +112,7 @@ export class AgnoiaOrchestrator {
     // Layer 4: Detectors
     const candidates = this.detectors.flatMap(d => d.evaluate(features, state, trade));
     
-    if (candidates.length === 0) return; // Save CPU if nothing happened
+    let hasNewEvents = false;
 
     // Process each candidate through higher layers
     for (const candidate of candidates) {
@@ -132,37 +134,52 @@ export class AgnoiaOrchestrator {
 
       // Layer 9: Market Memory
       this.marketMemory.update(symbol, [event], state.lastPrice);
+      
+      hasNewEvents = true;
+    }
 
-      // Layer 10-13: Evidence, Conflict, Probability
-      const context = this.contextEngine.compute(symbol, state, features);
-      const evidence = this.evidenceEngine.compute(symbol, recentEvents, sequences, this.marketMemory, context);
-      const conflict = this.conflictEngine.compute(evidence);
-      const probability = this.probabilityEngine.compute(evidence, conflict);
+    // ALWAYS evaluate AI Score on every tick (Layers 10-13)
+    const recentEvents = this.timeline.getRecent(symbol);
+    const sequences = this.sequenceEngine.getActive(symbol);
+    
+    const context = this.contextEngine.compute(symbol, state, features);
+    const evidence = this.evidenceEngine.compute(symbol, recentEvents, sequences, this.marketMemory, context);
+    const conflict = this.conflictEngine.compute(evidence);
+    const probability = this.probabilityEngine.compute(evidence, conflict);
 
-      // Layer 14-15: Strategies & Entry Gate
-      const recentSpoofs = this.timeline.getByType(symbol, 'SPOOF', 300_000).length;
+    // Throttle WebSocket broadcasts to once per second
+    const now = Date.now();
+    if (!this.lastBroadcastTime) this.lastBroadcastTime = 0;
+    if (now - this.lastBroadcastTime >= 1000) {
+      this.lastBroadcastTime = now;
+      this.events.emit('AI_STATE_UPDATE', { symbol, context, evidence, conflict, probability, timestamp: now });
+    }
 
-      for (const strategy of this.strategies) {
-        const decision = strategy.evaluate(probability, context, features);
+    if (!hasNewEvents) return;
+
+    // Layer 14-15: Strategies & Entry Gate (ONLY if new events occurred)
+    const recentSpoofs = this.timeline.getByType(symbol, 'SPOOF', 300_000).length;
+
+    for (const strategy of this.strategies) {
+      const decision = strategy.evaluate(probability, context, features);
+      
+      if (decision.direction !== 'none') {
+        const entryDecision = this.entryGate.evaluate(decision, probability, conflict, context, features, recentSpoofs);
         
-        if (decision.direction !== 'none') {
-          const entryDecision = this.entryGate.evaluate(decision, probability, conflict, context, features, recentSpoofs);
+        if (entryDecision.allowed) {
+          // FIRE TRADING SIGNAL
+          console.log(`[ENTRY] ${symbol} | Strategy: ${strategy.name} | Dir: ${decision.direction.toUpperCase()} | Conf: ${decision.confidence.toFixed(1)}`);
+          globalJournal.logDecision(symbol, decision, probability, conflict, context, entryDecision.checks);
           
-          if (entryDecision.allowed) {
-            // FIRE TRADING SIGNAL
-            console.log(`[ENTRY] ${symbol} | Strategy: ${strategy.name} | Dir: ${decision.direction.toUpperCase()} | Conf: ${decision.confidence.toFixed(1)}`);
-            globalJournal.logDecision(symbol, decision, probability, conflict, context, entryDecision.checks);
-            
-            // Broadcast to WebSocket clients
-            this.events.emit('ENTRY_SIGNAL', {
-              symbol,
-              strategy: strategy.name,
-              direction: decision.direction.toUpperCase(),
-              confidence: decision.confidence,
-              price: entryDecision.entryPrice,
-              timestamp: Date.now()
-            });
-          }
+          // Broadcast to WebSocket clients
+          this.events.emit('ENTRY_SIGNAL', {
+            symbol,
+            strategy: strategy.name,
+            direction: decision.direction.toUpperCase(),
+            confidence: decision.confidence,
+            price: entryDecision.entryPrice,
+            timestamp: Date.now()
+          });
         }
       }
     }

@@ -8,7 +8,8 @@ export const globalBackgroundState = {
   probState: { acc: 25, dist: 25, trap: 25, neutral: 25 },
   aiPhase: 'NEUTRAL',
   entryScore: 50,
-  exitScore: 50
+  exitScore: 50,
+  aiScoreHistory: [] as any[]
 };
 
 export class BackgroundEngines {

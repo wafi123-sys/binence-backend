@@ -828,6 +828,11 @@ let currentPrice = 0;
 let AEngine = null;
 
 function updateStrategy(){
+  fetchStrategyHistory();
+  fetchWhaleHistory();
+  // We no longer evaluate the local AEngine periodically,
+  // AI Score and Probability are driven entirely by the backend WebSocket.
+  // We just let the UI use backend's activePosition if any.
   if(!window.AEngine) return;
   const pos = window.AEngine.executionEngine.activePosition;
   const tc=$('tsCont');
@@ -1131,31 +1136,9 @@ function runEvidence(){
   }
 }
 
-function renderEvidence(){
-  if(!window.AEngine) return;
-  const res = window.AEngine.evidenceEngine.results;
-  
-  $('evBars').innerHTML = res.map(r => {
-    let statCol = r.status === 'Valid' ? 'var(--green)' : r.status === 'Candidate' ? 'var(--yellow)' : 'var(--t4)';
-    return `<div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
-      <span style="width: 35%; color: var(--t1);">${r.name}</span>
-      <span style="width: 25%; color: ${statCol}; font-weight:600;">${r.status}</span>
-      <span style="width: 20%; color: var(--cyan);">${r.confidence > 0 ? Math.round(r.confidence)+'%' : '-'}</span>
-      <span style="width: 20%; text-align:right; font-weight:bold; color: ${r.weight > 0 ? 'var(--green)' : r.weight < 0 ? 'var(--red)' : 'var(--t4)'};">${r.weight > 0 ? '+'+r.weight : r.weight}</span>
-    </div>`;
-  }).join('');
-  
-  const score = window.AEngine.evidenceEngine.score;
+function renderEvidence(score = S.aiScoreHistory?.[S.aiScoreHistory.length-1]?.score || 0){
   $('evTotal').textContent = score;
   $('aiNum').textContent = score;
-  // Track AI Score history for chart
-  if (!S.aiScoreHistory) {
-    try { S.aiScoreHistory = JSON.parse(sessionStorage.getItem('agnoia_aiScoreHistory')) || []; }
-    catch(e) { S.aiScoreHistory = []; }
-  }
-  S.aiScoreHistory.push({ score, time: Date.now() });
-  if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
-  try { sessionStorage.setItem('agnoia_aiScoreHistory', JSON.stringify(S.aiScoreHistory)); } catch(e){}
   
   const badge=$('aiBadge'), num=$('aiNum');
   if(score>=100){num.style.color='var(--green)';badge.style.borderColor='rgba(0,212,168,.3)';badge.style.background='rgba(0,212,168,.08)';}
@@ -1314,8 +1297,9 @@ function updateStrategy(){
               S.liveCapital = capital;
               S.strategyHistory = data.history || [];
               S.liquidations = data.liquidations || [];
+              S.aiScoreHistory = data.aiScoreHistory || [];
               
-              if(data.probState && Object.keys(data.probState).length > 0 && !S.prob) S.prob = data.probState;
+              if(data.probState && Object.keys(data.probState).length > 0) S.prob = data.probState;
               
               renderProbability();
            }
@@ -2113,7 +2097,7 @@ let frame=0;
 function loop(){
   frame++;
   if(frame%30===0){renderChart();renderInd();renderLiq();buildSPL();}
-  if(frame%60===0){runEvidence();updateStatus();}
+  if(frame%60===0){updateStatus();}
   if(frame%600===0){loadWhaleHistory();loadFunding(S.sym);loadOI(S.sym);loadLiquidations(S.sym);loadCandles(S.sym,S.tf);}
   requestAnimationFrame(loop);
 }
@@ -2234,6 +2218,29 @@ function runMonteCarlo() {
         const msg = JSON.parse(e.data);
         if (msg.type === 'ENTRY_SIGNAL') {
           renderSignal(msg.data);
+        } else if (msg.type === 'AI_STATE_UPDATE') {
+          const score = msg.data.evidence.totalScore;
+          if (!S.aiScoreHistory) S.aiScoreHistory = [];
+          S.aiScoreHistory.push({ score, time: msg.data.timestamp });
+          if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
+          
+          if(msg.data.probability && msg.data.probability.probabilities) {
+             S.prob = msg.data.probability.probabilities;
+             renderProbability();
+          }
+          
+          if (msg.data.evidence && msg.data.evidence.items) {
+             $('evBars').innerHTML = msg.data.evidence.items.map(r => {
+               let statCol = r.direction === 'bullish' ? 'var(--green)' : r.direction === 'bearish' ? 'var(--red)' : 'var(--t4)';
+               return `<div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                 <span style="width: 45%; color: var(--t1);">${r.source}</span>
+                 <span style="width: 25%; color: ${statCol}; font-weight:600;">${r.direction.toUpperCase()}</span>
+                 <span style="width: 30%; text-align:right; font-weight:bold; color: ${r.direction === 'bullish' ? 'var(--green)' : 'var(--red)'};">${r.direction==='bullish'?'+':'-'}${r.weight.toFixed(1)}</span>
+               </div>`;
+             }).join('');
+          }
+          
+          renderEvidence(score);
         } else if (msg.type === 'CONNECTED') {
           console.log('[SignalFeed]', msg.message);
         }

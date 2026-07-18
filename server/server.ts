@@ -56,7 +56,8 @@ app.prepare().then(async () => {
         aiPhase: globalBackgroundState.aiPhase,
         entryScore: globalBackgroundState.entryScore,
         exitScore: globalBackgroundState.exitScore,
-        liquidations: globalBackgroundState.liquidations
+        liquidations: globalBackgroundState.liquidations,
+        aiScoreHistory: globalBackgroundState.aiScoreHistory
       };
       res.end(JSON.stringify(responseData));
       return;
@@ -335,6 +336,21 @@ app.prepare().then(async () => {
   });
 
   // Wire Orchestrator events → WebSocket broadcast
+  agnoiaEngine.events.on('AI_STATE_UPDATE', (stateUpdate: any) => {
+    // 1. Persist to global background state for /api/strategy-state
+    const score = stateUpdate.evidence.totalScore;
+    globalBackgroundState.aiScoreHistory.push({ score, time: stateUpdate.timestamp });
+    if (globalBackgroundState.aiScoreHistory.length > 300) globalBackgroundState.aiScoreHistory.shift();
+    
+    globalBackgroundState.probState = stateUpdate.probability.probabilities;
+    
+    // 2. Broadcast to clients
+    const payload = JSON.stringify({ type: 'AI_STATE_UPDATE', data: stateUpdate });
+    for (const client of signalClients) {
+      if (client.readyState === WebSocket.OPEN) client.send(payload);
+    }
+  });
+
   agnoiaEngine.events.on('ENTRY_SIGNAL', (signal: any) => {
     const payload = JSON.stringify({ type: 'ENTRY_SIGNAL', data: signal });
     console.log(`[SignalWS] Broadcasting ENTRY: ${signal.symbol} ${signal.direction} (${signalClients.size} clients)`);
