@@ -470,6 +470,7 @@ html,body{width:100%;height:100%;background:var(--bg);color:var(--white);font-fa
           <div class="itab" onclick="setInd('oi',this)">OI</div>
           <div class="itab" onclick="setInd('funding',this)">Funding</div>
           <div class="itab" onclick="setInd('liq',this)">Liquidation</div>
+          <div class="itab" onclick="setInd('aiscore',this)" style="color:var(--cyan);">AI Score</div>
         </div>
         <canvas id="indCanvas"></canvas>
       </div>
@@ -1145,6 +1146,10 @@ function renderEvidence(){
   const score = window.AEngine.evidenceEngine.score;
   $('evTotal').textContent = score;
   $('aiNum').textContent = score;
+  // Track AI Score history for chart
+  if (!S.aiScoreHistory) S.aiScoreHistory = [];
+  S.aiScoreHistory.push({ score, time: Date.now() });
+  if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
   
   const badge=$('aiBadge'), num=$('aiNum');
   if(score>=100){num.style.color='var(--green)';badge.style.borderColor='rgba(0,212,168,.3)';badge.style.background='rgba(0,212,168,.08)';}
@@ -1671,6 +1676,70 @@ function renderInd(){
       ctx.fillStyle='rgba(106,138,170,.4)'; ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
       ctx.fillText('No liquidation data available',W/2,H/2); ctx.textAlign='left';
     }
+  } else if(S.activeInd==='aiscore'){
+    // AI Score chart
+    const hist = S.aiScoreHistory || [];
+    if(hist.length < 2) {
+      ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='9px IBM Plex Mono'; ctx.textAlign='center';
+      ctx.fillText('AI Score — Collecting data... ('+hist.length+' points)', W/2, H/2); ctx.textAlign='left';
+      return;
+    }
+    const scores = hist.map(h => h.score);
+    const mn = Math.min(...scores, 0);
+    const mx = Math.max(...scores, 150);
+    const rng = mx - mn || 1;
+    const toX = i => (i / (scores.length - 1)) * W;
+    const toY = v => H - ((v - mn) / rng) * H * 0.85 - H * 0.05;
+
+    // Draw zone backgrounds
+    const y100 = toY(100), y60 = toY(60);
+    ctx.fillStyle='rgba(0,212,168,.04)'; ctx.fillRect(0, 0, W, y100); // green zone (>100)
+    ctx.fillStyle='rgba(245,166,35,.04)'; ctx.fillRect(0, y100, W, y60 - y100); // yellow zone (60-100)
+    ctx.fillStyle='rgba(255,77,109,.04)'; ctx.fillRect(0, y60, W, H - y60); // red zone (<60)
+
+    // Draw zone lines
+    ctx.setLineDash([3,3]);
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle='rgba(0,212,168,.35)'; ctx.beginPath(); ctx.moveTo(0,y100); ctx.lineTo(W,y100); ctx.stroke();
+    ctx.strokeStyle='rgba(245,166,35,.35)'; ctx.beginPath(); ctx.moveTo(0,y60); ctx.lineTo(W,y60); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Zone labels
+    ctx.font='7px IBM Plex Mono'; ctx.textAlign='right';
+    ctx.fillStyle='rgba(0,212,168,.5)'; ctx.fillText('100', W-3, y100-2);
+    ctx.fillStyle='rgba(245,166,35,.5)'; ctx.fillText('60', W-3, y60-2);
+    ctx.textAlign='left';
+
+    // Gradient fill under the line
+    const lastScore = scores[scores.length - 1];
+    const lineColor = lastScore >= 100 ? '#00d4a8' : lastScore >= 60 ? '#f5a623' : '#ff4d6d';
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, lastScore >= 100 ? 'rgba(0,212,168,.25)' : lastScore >= 60 ? 'rgba(245,166,35,.2)' : 'rgba(255,77,109,.2)');
+    grad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.moveTo(toX(0), H);
+    scores.forEach((v, i) => ctx.lineTo(toX(i), toY(v)));
+    ctx.lineTo(toX(scores.length - 1), H); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+    // Draw the main line (color segments)
+    ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    for (let i = 1; i < scores.length; i++) {
+      const sc = scores[i];
+      ctx.strokeStyle = sc >= 100 ? '#00d4a8' : sc >= 60 ? '#f5a623' : '#ff4d6d';
+      ctx.beginPath(); ctx.moveTo(toX(i-1), toY(scores[i-1])); ctx.lineTo(toX(i), toY(sc)); ctx.stroke();
+    }
+
+    // Draw current value dot
+    const lastX = toX(scores.length - 1), lastY = toY(lastScore);
+    ctx.beginPath(); ctx.arc(lastX, lastY, 3, 0, Math.PI * 2);
+    ctx.fillStyle = lineColor; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
+
+    // Label
+    ctx.fillStyle = lineColor; ctx.font = 'bold 10px IBM Plex Mono'; ctx.textAlign = 'left';
+    ctx.fillText('AI SCORE: ' + Math.round(lastScore), 5, 12);
+    const phase = lastScore >= 100 ? 'STRONG' : lastScore >= 60 ? 'MODERATE' : 'WEAK';
+    ctx.fillStyle = 'rgba(106,138,170,.6)'; ctx.font = '8px IBM Plex Mono';
+    ctx.fillText(phase + ' | ' + scores.length + ' samples', 5, 23);
   } else {
     ctx.fillStyle='rgba(106,138,170,.6)'; ctx.font='8px IBM Plex Mono'; ctx.textAlign='center';
     ctx.fillText(S.activeInd.toUpperCase()+' — Coming Soon',W/2,H/2); ctx.textAlign='left';
