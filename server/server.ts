@@ -14,6 +14,7 @@ import { GridSearchRunner } from './backtest/gridSearch';
 import { loadTimeline, DEFAULT_LOG_DIR } from './backtest/datasetLoader';
 import { DEFAULT_EXEC } from './backtest/types';
 import { initDatabase } from './db';
+import { whatsappService } from './whatsappService';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -30,6 +31,7 @@ agnoiaEngine.start();
 app.prepare().then(async () => {
   await initDatabase();
   const bgEngines = new BackgroundEngines(); // Starts probability simulation
+  whatsappService.init().catch(err => console.error('[WhatsApp] Init Error:', err));
 
   const server = createServer((req, res) => {
     if (req.url && req.url.startsWith('/api/whale-history')) {
@@ -354,6 +356,15 @@ app.prepare().then(async () => {
   agnoiaEngine.events.on('ENTRY_SIGNAL', (signal: any) => {
     const payload = JSON.stringify({ type: 'ENTRY_SIGNAL', data: signal });
     console.log(`[SignalWS] Broadcasting ENTRY: ${signal.symbol} ${signal.direction} (${signalClients.size} clients)`);
+    
+    // Kirim notif ke WhatsApp
+    whatsappService.sendEntrySignal({
+       symbol: signal.symbol,
+       direction: signal.direction,
+       confidence: signal.confidence,
+       strategy: signal.strategy?.name || 'AGNOIA STRATEGY'
+    });
+
     for (const client of signalClients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(payload);
