@@ -1,5 +1,5 @@
 import { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } from '@whiskeysockets/baileys';
-import qrcode from 'qrcode-terminal';
+const qrcode = require('qrcode-terminal');
 import pino from 'pino';
 
 class WhatsAppService {
