@@ -50,8 +50,8 @@ app.prepare().then(async () => {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
       
-      const history = orchestrator.tradeJournal.getHistory();
-      const openTrades = orchestrator.tradeJournal.getOpenTrades();
+      const history = agnoiaEngine.tradeJournal.getHistory();
+      const openTrades = agnoiaEngine.tradeJournal.getOpenTrades();
       
       const responseData = {
         type: openTrades.length > 0 ? openTrades[0].type : 'NONE',
