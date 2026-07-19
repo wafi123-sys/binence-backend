@@ -62,21 +62,33 @@ export class AgnoiaOrchestrator {
     new MeanReversionStrategy()
   ];
 
+  private asyncOrchestrator = new (require('./asyncOrchestrator').AsyncOrchestrator)();
+
   constructor(symbols: string[] = ['btcusdt', 'ethusdt', 'solusdt', 'bnbusdt']) {
     this.symbols = symbols;
     this.streamManager = new BinanceStreamManager(this.symbols);
     this.validationEngine = new ValidationEngine(this.featureExtractor);
     
+    // Proxy events from AsyncOrchestrator out to server.ts
+    this.asyncOrchestrator.events.on('AI_STATE_UPDATE', (data: any) => this.events.emit('AI_STATE_UPDATE', data));
+    this.asyncOrchestrator.events.on('ENTRY_SIGNAL', (data: any) => this.events.emit('ENTRY_SIGNAL', data));
+    
     this.setupPipeline();
+  }
+
+  public get tradeJournal() {
+    return this.asyncOrchestrator.tradeJournal;
   }
 
   public start() {
     console.log('[Agnoia V3] Starting Orchestrator pipeline...');
     this.streamManager.start();
+    this.symbols.forEach(sym => this.asyncOrchestrator.start(sym));
   }
 
   public stop() {
     this.streamManager.stop();
+    this.asyncOrchestrator.stop();
   }
 
   private setupPipeline() {
@@ -90,25 +102,21 @@ export class AgnoiaOrchestrator {
       const features = this.featureExtractor.compute(trade.symbol, state);
       
       // 3. Process Pipeline
-      this.processTick(trade.symbol, features, trade);
+      this.processTick(trade.symbol, features, state, trade);
     });
 
     this.eventQueue.onDepth(depth => {
       this.marketEngine.applyDepth(depth);
       const state = this.marketEngine.getState(depth.symbol);
       const features = this.featureExtractor.compute(depth.symbol, state);
-      this.processTick(depth.symbol, features);
+      this.processTick(depth.symbol, features, state);
     });
 
     this.eventQueue.onFunding(fund => this.marketEngine.applyFunding(fund));
     this.eventQueue.onOpenInterest(oi => this.marketEngine.applyOpenInterest(oi));
-    
-    // We could also process liquidations directly into an event, but for now it's just raw ingestion
   }
 
-  private processTick(symbol: string, features: any, trade?: any) {
-    const state = this.marketEngine.getState(symbol);
-
+  private processTick(symbol: string, features: any, state: any, trade?: any) {
     // Layer 4: Detectors
     const candidates = this.detectors.flatMap(d => d.evaluate(features, state, trade));
     
@@ -124,64 +132,14 @@ export class AgnoiaOrchestrator {
       const event = this.eventEngine.create(validated);
       globalJournal.logEvent(symbol, 'events', event);
 
-      // Layer 7: Timeline
-      this.timeline.append(event);
-      const recentEvents = this.timeline.getRecent(symbol);
-
-      // Layer 8: Sequences
-      const sequences = this.sequenceEngine.update(symbol, recentEvents);
-      globalJournal.logEvent(symbol, 'sequences', sequences.filter(s => s.status !== 'INVALIDATED'));
-
-      // Layer 9: Market Memory
-      this.marketMemory.update(symbol, [event], state.lastPrice);
-      
+      // Pass down to Async Pipeline
+      this.asyncOrchestrator.pushValidatedEvent(symbol, event, state, features);
       hasNewEvents = true;
     }
 
-    // ALWAYS evaluate AI Score on every tick (Layers 10-13)
-    const recentEvents = this.timeline.getRecent(symbol);
-    const sequences = this.sequenceEngine.getActive(symbol);
-    
-    const context = this.contextEngine.compute(symbol, state, features);
-    const evidence = this.evidenceEngine.compute(symbol, recentEvents, sequences, this.marketMemory, context);
-    const conflict = this.conflictEngine.compute(evidence);
-    const probability = this.probabilityEngine.compute(evidence, conflict);
-
-    // Throttle WebSocket broadcasts to once per second
-    const now = Date.now();
-    if (!this.lastBroadcastTime) this.lastBroadcastTime = 0;
-    if (now - this.lastBroadcastTime >= 1000) {
-      this.lastBroadcastTime = now;
-      this.events.emit('AI_STATE_UPDATE', { symbol, context, evidence, conflict, probability, timestamp: now });
-    }
-
-    if (!hasNewEvents) return;
-
-    // Layer 14-15: Strategies & Entry Gate (ONLY if new events occurred)
-    const recentSpoofs = this.timeline.getByType(symbol, 'SPOOF', 300_000).length;
-
-    for (const strategy of this.strategies) {
-      const decision = strategy.evaluate(probability, context, features);
-      
-      if (decision.direction !== 'none') {
-        const entryDecision = this.entryGate.evaluate(decision, probability, conflict, context, features, recentSpoofs);
-        
-        if (entryDecision.allowed) {
-          // FIRE TRADING SIGNAL
-          console.log(`[ENTRY] ${symbol} | Strategy: ${strategy.name} | Dir: ${decision.direction.toUpperCase()} | Conf: ${decision.confidence.toFixed(1)}`);
-          globalJournal.logDecision(symbol, decision, probability, conflict, context, entryDecision.checks);
-          
-          // Broadcast to WebSocket clients
-          this.events.emit('ENTRY_SIGNAL', {
-            symbol,
-            strategy: strategy.name,
-            direction: decision.direction.toUpperCase(),
-            confidence: decision.confidence,
-            price: entryDecision.entryPrice,
-            timestamp: Date.now()
-          });
-        }
-      }
+    if (!hasNewEvents) {
+      // Keep Async Pipeline updated with latest state even if no events
+      this.asyncOrchestrator.updateStateOnly(state, features);
     }
   }
 }

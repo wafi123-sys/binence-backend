@@ -1180,7 +1180,7 @@ function renderProbability(){
   
   let livePnl = S.livePnl || 0;
   
-  const activeTrade = S.activeLocalTrade || (S.strategyHistory && S.strategyHistory.length > 0 && S.strategyHistory[0].isLive ? S.strategyHistory[0] : null);
+  const activeTrade = (S.strategyHistory && S.strategyHistory.length > 0 && S.strategyHistory[0].status === 'OPEN' ? S.strategyHistory[0] : null);
   const openCount = activeTrade ? 1 : 0;
   
   posTracker.innerHTML = `
@@ -1232,20 +1232,8 @@ function updateContext(){
   $('ctxTags').innerHTML=tags.map(t=>`<div style="font-size:8px;font-family:var(--mono);padding:2px 5px;border-radius:2px;background:var(--bg4);border:1px solid var(--b2);color:${t.c};">${t.l}</div>`).join('');
 }
 
-function updateStrategy(){
-        if (!S.activeLocalTrade) {
-            if (S.aiPhase === 'ACCUMULATION' && S.aiPhaseConf > 65) {
-                S.activeLocalTrade = { isLive: true, type: 'LONG', sl: S.price * 0.995, tp: S.price * 1.02, entryPrice: S.price };
-            } else if (S.aiPhase === 'DISTRIBUTION' && S.aiPhaseConf > 65) {
-                S.activeLocalTrade = { isLive: true, type: 'SHORT', sl: S.price * 1.005, tp: S.price * 0.98, entryPrice: S.price };
-            }
-        } else {
-            // Close condition based on phase reversal or stop loss / take profit
-            if (S.activeLocalTrade.type === 'LONG' && (S.aiPhase === 'DISTRIBUTION' || S.price <= S.activeLocalTrade.sl || S.price >= S.activeLocalTrade.tp)) S.activeLocalTrade = null;
-            if (S.activeLocalTrade.type === 'SHORT' && (S.aiPhase === 'ACCUMULATION' || S.price >= S.activeLocalTrade.sl || S.price <= S.activeLocalTrade.tp)) S.activeLocalTrade = null;
-        }
-
-        const liveTrade = S.activeLocalTrade || (S.strategyHistory && S.strategyHistory.length && S.strategyHistory[0].isLive ? S.strategyHistory[0] : null);
+    function updateStrategy(){
+        const liveTrade = (S.strategyHistory && S.strategyHistory.length && S.strategyHistory[0].status === 'OPEN' ? S.strategyHistory[0] : null);
         
         if (liveTrade) {
            S.liveType = liveTrade.type;
@@ -2217,6 +2205,7 @@ function runMonteCarlo() {
         const msg = JSON.parse(e.data);
         if (msg.type === 'ENTRY_SIGNAL') {
           renderSignal(msg.data);
+          updateStrategyHistory();
         } else if (msg.type === 'AI_STATE_UPDATE') {
           const activeSym = S.sym ? S.sym.toLowerCase() : '';
           if (msg.data.symbol.toLowerCase() !== activeSym) return; // Separate data per coin
@@ -2273,30 +2262,58 @@ function runMonteCarlo() {
                { name: 'Funding', keys: ['Context:Funding'] }
              ];
 
-             const renderedRows = rows.map(row => {
+             const bullishHtml = [];
+             const bearishHtml = [];
+
+             rows.forEach(row => {
                const matches = msg.data.evidence.items.filter(item => row.keys.some(k => item.source.includes(k)));
-               let status = 'Rejected';
-               let weight = 0;
-               let statCol = 'var(--t4)';
+               if (matches.length === 0) return; // Hide rejected/empty rows
+               
+               const weight = matches.reduce((sum, item) => sum + (item.direction === 'bearish' ? -item.weight : item.weight), 0);
+               if (weight === 0) return;
 
-               if (matches.length > 0) {
-                 status = 'Valid';
-                 weight = matches.reduce((sum, item) => sum + (item.direction === 'bearish' ? -item.weight : item.weight), 0);
-                 statCol = weight < 0 ? 'var(--red)' : 'var(--green)';
-               }
-
-               const weightStr = weight !== 0 ? (weight > 0 ? '+'+weight.toFixed(1) : weight.toFixed(1)) : '0';
-               const wCol = weight > 0 ? 'var(--green)' : (weight < 0 ? 'var(--red)' : 'var(--t4)');
-               const conf = matches.length > 0 ? (row.name === 'Whale' || row.name === 'Trap' ? '85%' : '-') : '-'; // Example static conf for UI parity
-
-               return `<div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
-                 <span style="width: 35%; color: var(--t1);">${row.name}</span>
-                 <span style="width: 25%; color: ${statCol}; font-weight:600;">${status}</span>
-                 <span style="width: 20%; color: var(--cyan);">${conf}</span>
-                 <span style="width: 20%; text-align:right; font-weight:bold; color: ${wCol};">${weightStr}</span>
+               const weightStr = weight > 0 ? '+'+weight.toFixed(1) : weight.toFixed(1);
+               const html = `<div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:10px; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                 <span style="color: var(--t1);">${row.name}</span>
+                 <span style="font-weight:bold; color: ${weight > 0 ? 'var(--green)' : 'var(--red)'};">${weightStr}</span>
                </div>`;
-             }).join('');
-             $('evBars').innerHTML = renderedRows;
+               
+               if (weight > 0) bullishHtml.push(html);
+               else if (weight < 0) bearishHtml.push(html);
+             });
+
+             const totalScore = (msg.data.evidence.totalScore !== undefined) ? msg.data.evidence.totalScore : (msg.data.evidence.totalBullish - msg.data.evidence.totalBearish);
+             const maxScore = Math.max(100, Math.abs(totalScore) * 1.5);
+             const gaugePct = Math.min(100, (Math.abs(totalScore) / maxScore) * 100);
+             const gaugeColor = totalScore >= 0 ? 'var(--green)' : 'var(--red)';
+             const gaugeSide = totalScore >= 0 ? `left:50%; width:${gaugePct/2}%` : `right:50%; width:${gaugePct/2}%`;
+
+             const gaugeHtml = `
+               <div style="margin-bottom:10px;">
+                 <div style="display:flex; justify-content:space-between; font-size:9px; color:var(--t4); margin-bottom:2px;">
+                    <span>BEARISH</span><span>NEUTRAL</span><span>BULLISH</span>
+                 </div>
+                 <div style="width:100%; height:6px; background:var(--bg4); border-radius:3px; position:relative;">
+                    <div style="position:absolute; top:0; bottom:0; background:${gaugeColor}; ${gaugeSide}; border-radius:3px;"></div>
+                    <div style="position:absolute; top:0; bottom:0; left:50%; width:1px; background:var(--t4);"></div>
+                 </div>
+               </div>
+             `;
+
+             const columnsHtml = `
+               <div style="display:flex; gap:10px;">
+                 <div style="flex:1;">
+                   <div style="font-size:9px; color:var(--green); border-bottom:1px solid var(--green-dim); margin-bottom:4px; padding-bottom:2px;">BULLISH FORCES</div>
+                   ${bullishHtml.length > 0 ? bullishHtml.join('') : '<div style="font-size:9px; color:var(--t4);">None</div>'}
+                 </div>
+                 <div style="flex:1;">
+                   <div style="font-size:9px; color:var(--red); border-bottom:1px solid var(--red-dim); margin-bottom:4px; padding-bottom:2px;">BEARISH FORCES</div>
+                   ${bearishHtml.length > 0 ? bearishHtml.join('') : '<div style="font-size:9px; color:var(--t4);">None</div>'}
+                 </div>
+               </div>
+             `;
+
+             $('evBars').innerHTML = gaugeHtml + columnsHtml;
           }
 
           renderEvidence(score);

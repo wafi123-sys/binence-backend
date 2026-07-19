@@ -49,15 +49,20 @@ app.prepare().then(async () => {
     if (req.url && req.url.startsWith('/api/strategy-state')) {
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Access-Control-Allow-Origin', '*');
+      
+      const history = orchestrator.tradeJournal.getHistory();
+      const openTrades = orchestrator.tradeJournal.getOpenTrades();
+      
       const responseData = {
-        type: globalBackgroundState.strategyHistory[0]?.type || 'LONG',
-        history: globalBackgroundState.strategyHistory,
+        type: openTrades.length > 0 ? openTrades[0].type : 'NONE',
+        history: [...history].reverse(), // Send newest first
         probState: globalBackgroundState.probState,
         aiPhase: globalBackgroundState.aiPhase,
         entryScore: globalBackgroundState.entryScore,
         exitScore: globalBackgroundState.exitScore,
         liquidations: globalBackgroundState.liquidations,
         aiScoreHistory: globalBackgroundState.aiScoreHistory
+
       };
       res.end(JSON.stringify(responseData));
       return;
@@ -338,11 +343,24 @@ app.prepare().then(async () => {
   // Wire Orchestrator events → WebSocket broadcast
   agnoiaEngine.events.on('AI_STATE_UPDATE', (stateUpdate: any) => {
     // 1. Persist to global background state for /api/strategy-state
-    const score = stateUpdate.evidence.totalScore;
+    const score = stateUpdate.evidence.totalBullish - stateUpdate.evidence.totalBearish;
     globalBackgroundState.aiScoreHistory.push({ score, time: stateUpdate.timestamp });
     if (globalBackgroundState.aiScoreHistory.length > 300) globalBackgroundState.aiScoreHistory.shift();
     
-    globalBackgroundState.probState = stateUpdate.probability.probabilities;
+    globalBackgroundState.probState = stateUpdate.probability;
+    
+    // Determine Phase based on Highest Probability
+    const probs = [
+      { name: 'ACCUMULATION', val: stateUpdate.probability.accumulation },
+      { name: 'DISTRIBUTION', val: stateUpdate.probability.distribution },
+      { name: 'TRAP', val: stateUpdate.probability.trap },
+      { name: 'RANGING', val: stateUpdate.probability.neutral }
+    ];
+    probs.sort((a,b) => b.val - a.val);
+    globalBackgroundState.aiPhase = probs[0].name;
+
+    globalBackgroundState.entryScore = stateUpdate.probability.accumulation;
+    globalBackgroundState.exitScore = stateUpdate.probability.distribution;
     
     // 2. Broadcast to clients
     const payload = JSON.stringify({ type: 'AI_STATE_UPDATE', data: stateUpdate });

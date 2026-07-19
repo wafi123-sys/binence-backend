@@ -24,7 +24,7 @@ export class ConflictEngine {
     // If bullish is 50 and bearish is 50, diff = 0 -> conflict = 100
     // If bullish is 90 and bearish is 10, diff = 80 -> conflict = 20
     const diff = Math.abs(bullishPct - bearishPct);
-    const conflictScore = 100 - diff;
+    const conflictScore = Math.max(0, 100 - (diff * 1.5));
 
     return {
       bullishPct,
