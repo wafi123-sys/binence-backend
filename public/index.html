@@ -2237,7 +2237,24 @@ function runMonteCarlo() {
                 trap: probs.trap || 0,
                 neutral: probs.neutral || 0
              };
+             
+             // Restore entry/exit score and phase mapping
+             S.entryScore = Math.round(S.prob.acc);
+             S.exitScore = Math.round(S.prob.dist);
+             
+             if (S.prob.acc > S.prob.dist && S.prob.acc > S.prob.trap && S.prob.acc > 40) {
+                 S.aiPhase = 'ACCUMULATION'; S.aiPhaseConf = Math.round(S.prob.acc); S.aiPhaseDesc = 'Smart money buying. Institutional accumulation via whale & absorption.';
+             } else if (S.prob.dist > S.prob.acc && S.prob.dist > S.prob.trap && S.prob.dist > 40) {
+                 S.aiPhase = 'DISTRIBUTION'; S.aiPhaseConf = Math.round(S.prob.dist); S.aiPhaseDesc = 'Institutional selling detected. Distribution pattern active.';
+             } else if (S.prob.trap > 30) {
+                 S.aiPhase = 'TRAP RISK'; S.aiPhaseConf = Math.round(S.prob.trap); S.aiPhaseDesc = 'High conflict or trap signatures. Potential liquidity trap.';
+             } else {
+                 S.aiPhase = 'RANGING'; S.aiPhaseConf = Math.round(S.prob.neutral); S.aiPhaseDesc = 'Market equilibrium. No strong directional bias.';
+             }
+             
              renderProbability();
+             renderPhase();
+             updateStrategy();
           }
           
           if (msg.data.evidence && msg.data.evidence.items) {
