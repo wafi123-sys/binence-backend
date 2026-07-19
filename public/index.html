@@ -2221,13 +2221,22 @@ function runMonteCarlo() {
           const activeSym = S.sym ? S.sym.toLowerCase() : '';
           if (msg.data.symbol.toLowerCase() !== activeSym) return; // Separate data per coin
 
-          const score = msg.data.evidence.totalScore;
+          const ev = msg.data.evidence;
+          const score = ev.totalScore !== undefined ? ev.totalScore : (ev.totalBullish - ev.totalBearish);
           if (!S.aiScoreHistory) S.aiScoreHistory = [];
           S.aiScoreHistory.push({ score, time: msg.data.timestamp });
           if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
           
-          if(msg.data.probability && msg.data.probability.probabilities) {
-             S.prob = msg.data.probability.probabilities;
+          if(msg.data.probability) {
+             const pb = msg.data.probability;
+             // Handle both old and new backend shapes
+             const probs = pb.probabilities || pb; 
+             S.prob = {
+                acc: probs.accumulation || 0,
+                dist: probs.distribution || 0,
+                trap: probs.trap || 0,
+                neutral: probs.neutral || 0
+             };
              renderProbability();
           }
           
