@@ -2232,10 +2232,10 @@ function runMonteCarlo() {
           if (msg.data.evidence && msg.data.evidence.items) {
              $('evBars').innerHTML = msg.data.evidence.items.map(r => {
                let statCol = r.direction === 'bullish' ? 'var(--green)' : r.direction === 'bearish' ? 'var(--red)' : 'var(--t4)';
-               return `<div style="display:flex; justify-content:space-between; margin-bottom:4px; font-size:11px; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
-                 <span style="width: 45%; color: var(--t1);">${r.source}</span>
+               return `<div style="display:flex; justify-content:space-between; align-items:center; flex-shrink:0; min-height:24px; margin-bottom:4px; font-size:11px; line-height:1; padding: 4px; background: rgba(255,255,255,0.02); border-radius: 4px;">
+                 <span style="width: 45%; color: var(--gray); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">${r.source}</span>
                  <span style="width: 25%; color: ${statCol}; font-weight:600;">${r.direction.toUpperCase()}</span>
-                 <span style="width: 30%; text-align:right; font-weight:bold; color: ${r.direction === 'bullish' ? 'var(--green)' : 'var(--red)'};">${r.direction==='bullish'?'+':'-'}${r.weight.toFixed(1)}</span>
+                 <span style="width: 30%; text-align:right; font-weight:bold; color: ${r.direction === 'bullish' ? 'var(--green)' : 'var(--red)'};">${r.direction==='bullish'?'+':''}${r.weight.toFixed(1)}</span>
                </div>`;
              }).join('');
           }
