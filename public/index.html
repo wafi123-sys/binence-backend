@@ -2218,7 +2218,7 @@ function runMonteCarlo() {
         if (msg.type === 'ENTRY_SIGNAL') {
           renderSignal(msg.data);
         } else if (msg.type === 'AI_STATE_UPDATE') {
-          const activeSym = S.activePair ? S.activePair.replace('/', '').toLowerCase() : '';
+          const activeSym = S.sym ? S.sym.toLowerCase() : '';
           if (msg.data.symbol.toLowerCase() !== activeSym) return; // Separate data per coin
 
           const score = msg.data.evidence.totalScore;
