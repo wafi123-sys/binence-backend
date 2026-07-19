@@ -2222,7 +2222,8 @@ function runMonteCarlo() {
           if (msg.data.symbol.toLowerCase() !== activeSym) return; // Separate data per coin
 
           const ev = msg.data.evidence;
-          const score = ev.totalScore !== undefined ? ev.totalScore : (ev.totalBullish - ev.totalBearish);
+          let rawScore = ev.totalScore !== undefined ? ev.totalScore : (ev.totalBullish - ev.totalBearish);
+          const score = Math.round(rawScore * 10) / 10; // Round to 1 decimal place
           if (!S.aiScoreHistory) S.aiScoreHistory = [];
           S.aiScoreHistory.push({ score, time: msg.data.timestamp });
           if (S.aiScoreHistory.length > 300) S.aiScoreHistory.shift();
@@ -2232,10 +2233,10 @@ function runMonteCarlo() {
              // Handle both old and new backend shapes
              const probs = pb.probabilities || pb; 
              S.prob = {
-                acc: probs.accumulation || 0,
-                dist: probs.distribution || 0,
-                trap: probs.trap || 0,
-                neutral: probs.neutral || 0
+                acc: Math.round(probs.accumulation || 0),
+                dist: Math.round(probs.distribution || 0),
+                trap: Math.round(probs.trap || 0),
+                neutral: Math.round(probs.neutral || 0)
              };
              
              // Restore entry/exit score and phase mapping
@@ -2280,8 +2281,8 @@ function runMonteCarlo() {
 
                if (matches.length > 0) {
                  status = 'Valid';
-                 statCol = 'var(--green)';
-                 weight = matches.reduce((sum, item) => sum + item.weight, 0);
+                 weight = matches.reduce((sum, item) => sum + (item.direction === 'bearish' ? -item.weight : item.weight), 0);
+                 statCol = weight < 0 ? 'var(--red)' : 'var(--green)';
                }
 
                const weightStr = weight !== 0 ? (weight > 0 ? '+'+weight.toFixed(1) : weight.toFixed(1)) : '0';
